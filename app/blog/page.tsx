@@ -25,7 +25,6 @@ interface PostWithCategory {
 
 export default async function BlogPage() {
   // 获取所有已发布的文章
-  // @ts-expect-error - Prisma types not updated yet
   const posts: PostWithCategory[] = await prisma.post.findMany({
     where: { published: true },
     include: {
