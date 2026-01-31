@@ -11,6 +11,9 @@ import Link from 'next/link';
 import { getAllPostsAsync } from '@/lib/posts';
 import BlogCard from '@/app/components/BlogCard';
 
+// 动态渲染，每次请求都获取最新数据
+export const dynamic = 'force-dynamic';
+
 export default async function Home() {
   const posts = await getAllPostsAsync();
   const recentPosts = posts.slice(0, 4);
