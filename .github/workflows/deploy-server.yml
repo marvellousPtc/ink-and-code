@@ -41,7 +41,7 @@ jobs:
             
             # 重启 PM2 服务 - 先删除旧进程再启动，确保干净重启
             pm2 delete ink-and-code || true
-            pm2 start pnpm --name "ink-and-code" -- start
+            pm2 start "npx next start" --name "ink-and-code"
             pm2 save
             
             echo "✅ 部署完成！"
