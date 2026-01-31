@@ -405,55 +405,68 @@ pre code {
 }
 
 /* Tiptap 渲染器样式（博客页面） */
+.tiptap-content {
+  width: 100%;
+  max-width: 100%;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
 .tiptap-content h1 {
-  font-size: 2.25rem;
+  font-size: 1.5rem;
   font-weight: bold;
-  margin: 1.5rem 0 0.75rem;
+  margin: 1.25rem 0 0.5rem;
   font-family: var(--font-serif);
   color: var(--foreground);
+  word-break: break-word;
 }
 
 .tiptap-content h2 {
-  font-size: 1.75rem;
-  font-weight: bold;
-  margin: 2rem 0 0.75rem;
-  font-family: var(--font-serif);
-  color: var(--foreground);
-}
-
-.tiptap-content h3 {
-  font-size: 1.35rem;
+  font-size: 1.25rem;
   font-weight: bold;
   margin: 1.5rem 0 0.5rem;
   font-family: var(--font-serif);
   color: var(--foreground);
+  word-break: break-word;
+}
+
+.tiptap-content h3 {
+  font-size: 1.1rem;
+  font-weight: bold;
+  margin: 1.25rem 0 0.4rem;
+  font-family: var(--font-serif);
+  color: var(--foreground);
+  word-break: break-word;
 }
 
 .tiptap-content p {
-  margin: 0.85rem 0;
+  margin: 0.75rem 0;
   line-height: 1.7;
   color: var(--muted);
-  font-size: 1rem;
+  font-size: 0.9rem;
+  word-break: break-word;
 }
 
 .tiptap-content ul {
-  padding-left: 1.5rem;
-  margin: 1rem 0;
+  padding-left: 1.25rem;
+  margin: 0.75rem 0;
   color: var(--muted);
   list-style-type: disc;
 }
 
 .tiptap-content ol {
-  padding-left: 1.5rem;
-  margin: 1rem 0;
+  padding-left: 1.25rem;
+  margin: 0.75rem 0;
   color: var(--muted);
   list-style-type: decimal;
 }
 
 .tiptap-content li {
-  margin: 0.5rem 0;
-  line-height: 1.7;
+  margin: 0.4rem 0;
+  line-height: 1.6;
   display: list-item;
+  font-size: 0.9rem;
+  word-break: break-word;
 }
 
 .tiptap-content li p {
@@ -462,58 +475,63 @@ pre code {
 
 .tiptap-content blockquote {
   border-left: 2px solid var(--primary);
-  padding: 0.5rem 1.5rem;
-  margin: 2rem 0;
-  background: var(--card)/30;
+  padding: 0.5rem 1rem;
+  margin: 1rem 0;
+  background: var(--card);
   border-radius: 0 0.5rem 0.5rem 0;
   font-style: italic;
 }
 
 .tiptap-content blockquote p {
   color: var(--muted);
-  margin: 0.5rem 0;
+  margin: 0.4rem 0;
 }
 
 .tiptap-content code {
   background: var(--card);
-  padding: 0.2rem 0.5rem;
+  padding: 0.15rem 0.4rem;
   border-radius: 0.25rem;
-  font-size: 0.9em;
+  font-size: 0.8em;
   color: var(--primary);
+  word-break: break-all;
 }
 
 .tiptap-content pre {
   background: var(--card) !important;
   border: 1px solid var(--card-border);
-  border-radius: 0.75rem;
-  padding: 1.25rem;
-  margin: 1.5rem 0;
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  margin: 1rem 0;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .tiptap-content pre code {
   background: none;
   padding: 0;
   color: var(--foreground);
-  font-size: 0.9rem;
+  font-size: 0.75rem;
+  word-break: normal;
+  white-space: pre;
 }
 
 .tiptap-content img {
   max-width: 100%;
   height: auto;
-  border-radius: 0.75rem;
-  margin: 1.5rem 0;
+  border-radius: 0.5rem;
+  margin: 1rem 0;
 }
 
 .tiptap-content hr {
   border: none;
   border-top: 1px solid var(--card-border);
-  margin: 3rem 0;
+  margin: 2rem 0;
 }
 
 .tiptap-content a {
   color: var(--primary);
   text-decoration: none;
+  word-break: break-word;
 }
 
 .tiptap-content a:hover {
@@ -522,6 +540,103 @@ pre code {
 
 .tiptap-content strong {
   color: var(--foreground);
+}
+
+/* 表格样式 - 关键：让表格可滚动 */
+.tiptap-content table {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  font-size: 0.8rem;
+}
+
+.tiptap-content th,
+.tiptap-content td {
+  border: 1px solid var(--card-border);
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.tiptap-content th {
+  background: var(--card);
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.tiptap-content td {
+  color: var(--muted);
+}
+
+/* 桌面端样式 */
+@media (min-width: 640px) {
+  .tiptap-content h1 {
+    font-size: 2rem;
+    margin: 1.5rem 0 0.75rem;
+  }
+  
+  .tiptap-content h2 {
+    font-size: 1.5rem;
+    margin: 2rem 0 0.75rem;
+  }
+  
+  .tiptap-content h3 {
+    font-size: 1.25rem;
+    margin: 1.5rem 0 0.5rem;
+  }
+  
+  .tiptap-content p {
+    font-size: 1rem;
+    margin: 0.85rem 0;
+  }
+  
+  .tiptap-content ul,
+  .tiptap-content ol {
+    padding-left: 1.5rem;
+    margin: 1rem 0;
+  }
+  
+  .tiptap-content li {
+    font-size: 1rem;
+    margin: 0.5rem 0;
+  }
+  
+  .tiptap-content blockquote {
+    padding: 0.5rem 1.5rem;
+    margin: 1.5rem 0;
+  }
+  
+  .tiptap-content code {
+    padding: 0.2rem 0.5rem;
+    font-size: 0.85em;
+  }
+  
+  .tiptap-content pre {
+    padding: 1rem;
+    margin: 1.5rem 0;
+    border-radius: 0.75rem;
+  }
+  
+  .tiptap-content pre code {
+    font-size: 0.85rem;
+  }
+  
+  .tiptap-content table {
+    font-size: 0.9rem;
+  }
+  
+  .tiptap-content th,
+  .tiptap-content td {
+    padding: 0.5rem 1rem;
+  }
+  
+  .tiptap-content hr {
+    margin: 3rem 0;
+  }
 }
 
 /* 隐藏滚动条但保留滚动功能 */

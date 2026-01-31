@@ -15,16 +15,16 @@ export default function Header() {
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 glass">
-      <nav className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between gap-8">
+      <nav className="max-w-7xl mx-auto px-4 sm:px-6 h-16 sm:h-20 flex items-center justify-between gap-4 sm:gap-8">
         <Link 
           href="/" 
-          className="serif text-2xl font-bold tracking-tighter hover:opacity-70 transition-opacity shrink-0"
+          className="serif text-xl sm:text-2xl font-bold tracking-tighter hover:opacity-70 transition-opacity shrink-0"
         >
           Ink<span className="text-primary">&</span>Code
         </Link>
 
-        <div className="flex items-center gap-8">
-          <ul className="flex items-center gap-8">
+        <div className="flex items-center gap-4 sm:gap-8">
+          <ul className="flex items-center gap-4 sm:gap-8">
             {navItems.map((item) => {
               const isActive = pathname === item.href || 
                 (item.href !== '/' && pathname.startsWith(item.href));
@@ -34,7 +34,7 @@ export default function Header() {
                   <Link
                     href={item.href}
                     className={`
-                      text-[13px] tracking-widest uppercase transition-colors duration-300
+                      text-[11px] sm:text-[13px] tracking-wider sm:tracking-widest uppercase transition-colors duration-300
                       ${isActive ? 'text-primary' : 'text-muted hover:text-foreground'}
                     `}
                   >

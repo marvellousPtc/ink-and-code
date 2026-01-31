@@ -7,21 +7,23 @@ import Image from '@tiptap/extension-image';
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 import { common, createLowlight } from 'lowlight';
 import { useMemo } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const lowlight = createLowlight(common);
 
 interface TiptapRendererProps {
-  content: string; // JSON string or plain text/markdown
+  content: string; // JSON string or Markdown
 }
 
 export default function TiptapRenderer({ content }: TiptapRendererProps) {
-  const html = useMemo(() => {
-    if (!content) return '';
+  const { isJson, html } = useMemo(() => {
+    if (!content) return { isJson: false, html: '' };
 
     try {
       // 尝试解析为 JSON（Tiptap 格式）
       const json = JSON.parse(content);
-      return generateHTML(json, [
+      const generatedHtml = generateHTML(json, [
         StarterKit.configure({
           codeBlock: false,
         }),
@@ -39,20 +41,29 @@ export default function TiptapRenderer({ content }: TiptapRendererProps) {
           lowlight,
         }),
       ]);
+      return { isJson: true, html: generatedHtml };
     } catch {
-      // 如果不是 JSON，当作纯文本/Markdown 处理
-      // 简单处理：将换行转为段落
-      return content
-        .split('\n\n')
-        .map((p) => `<p>${p.replace(/\n/g, '<br />')}</p>`)
-        .join('');
+      // 不是 JSON，返回原始内容用于 Markdown 渲染
+      return { isJson: false, html: '' };
     }
   }, [content]);
 
+  // 如果是 JSON 格式，使用 HTML 渲染
+  if (isJson) {
+    return (
+      <div
+        className="tiptap-content overflow-hidden"
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    );
+  }
+
+  // 如果是 Markdown 格式，使用 ReactMarkdown 渲染
   return (
-    <div
-      className="tiptap-content prose prose-invert max-w-none"
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <div className="tiptap-content overflow-hidden">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+        {content}
+      </ReactMarkdown>
+    </div>
   );
 }

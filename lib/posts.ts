@@ -221,7 +221,11 @@ export function getPostBySlug(slug: string): Post | null {
 // 异步获取单篇文章（推荐在使用数据库时使用）
 export async function getPostBySlugAsync(slug: string): Promise<Post | null> {
   if (useDatabase) {
-    return getPostBySlugFromDB(slug);
+    // 先从数据库查找
+    const post = await getPostBySlugFromDB(slug);
+    if (post) return post;
+    // 数据库找不到，尝试从文件系统查找（支持静态 Markdown 文章）
+    return getPostBySlugFromFiles(slug);
   }
   return getPostBySlugFromFiles(slug);
 }
