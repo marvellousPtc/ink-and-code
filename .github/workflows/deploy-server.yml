@@ -37,7 +37,7 @@ jobs:
             pnpm prisma generate
             
             # 构建项目（包含数据库同步）
-            pnpm build:deploy
+            pnpm build
             
             # 重启 PM2 服务 - 先删除旧进程再启动，确保干净重启
             pm2 delete ink-and-code || true
