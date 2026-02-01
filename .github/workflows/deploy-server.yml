@@ -46,11 +46,11 @@ jobs:
           REMOTE_HOST: ${{ secrets.SERVER_HOST }}
           REMOTE_USER: ${{ secrets.SERVER_USER }}
           REMOTE_PORT: ${{ secrets.SERVER_PORT }}
-          SOURCE: ".next/ public/ package.json pnpm-lock.yaml ecosystem.config.js prisma/ node_modules/"
+          SOURCE: ".next/ public/ package.json pnpm-lock.yaml ecosystem.config.js prisma/"
           TARGET: ${{ secrets.PROJECT_PATH }}
-          EXCLUDE: "node_modules/.cache/, .next/cache/"
+          EXCLUDE: ".next/cache/"
 
-      - name: 重启服务
+      - name: 安装依赖并重启服务
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -59,6 +59,12 @@ jobs:
           port: ${{ secrets.SERVER_PORT }}
           script: |
             cd ${{ secrets.PROJECT_PATH }}
+            
+            # 安装生产依赖
+            pnpm install --prod
+            
+            # 生成 Prisma Client
+            pnpm prisma generate
             
             # 同步数据库
             pnpm prisma db push --skip-generate
