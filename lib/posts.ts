@@ -134,8 +134,9 @@ async function getAllPostsFromDB(): Promise<PostMeta[]> {
 async function getPostBySlugFromDB(slug: string): Promise<Post | null> {
   const { prisma } = await import('./prisma');
   
-  const post = await prisma.post.findUnique({
-    where: { slug },
+  // 由于 slug 现在是 userId + slug 组合唯一，这里用 findFirst
+  const post = await prisma.post.findFirst({
+    where: { slug, published: true },
   });
 
   if (!post) return null;
