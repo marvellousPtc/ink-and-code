@@ -39,9 +39,15 @@ jobs:
             # 构建项目（包含数据库同步）
             pnpm build
             
-            # 重启 PM2 服务 - 先删除旧进程再启动，确保干净重启
-            pm2 delete ink-and-code || true
-            pm2 start "npx next start" --name "ink-and-code"
+            # 使用 PM2 ecosystem 配置文件实现零停机部署
+            # 如果进程存在则 reload，否则启动
+            if pm2 describe ink-and-code > /dev/null 2>&1; then
+              # 进程已存在，使用 reload 实现优雅重启
+              pm2 reload ecosystem.config.js --update-env
+            else
+              # 进程不存在，首次启动
+              pm2 start ecosystem.config.js
+            fi
             pm2 save
             
             echo "✅ 部署完成！"
