@@ -1,54 +1,91 @@
 'use client';
 
+import { useState, useRef, useEffect } from 'react';
 import { useTheme } from './ThemeProvider';
+import { Sun, Moon, Monitor } from 'lucide-react';
+
+const themes = [
+  { value: 'light', label: '浅色', icon: Sun },
+  { value: 'dark', label: '深色', icon: Moon },
+  { value: 'system', label: '跟随系统', icon: Monitor },
+] as const;
 
 export default function ThemeToggle() {
-  const { theme, toggleTheme, mounted } = useTheme();
+  const { theme, resolvedTheme, setTheme, mounted } = useTheme();
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
-  // 在客户端挂载前显示占位符，避免闪烁
+  // 点击外部关闭菜单
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // 在客户端挂载前显示占位符
   if (!mounted) {
     return (
-      <div className="w-12 h-12 rounded-full border border-card-border bg-card" />
+      <div className="w-10 h-10 rounded-full border border-card-border bg-card" />
     );
   }
 
+  const currentIcon = theme === 'system' 
+    ? Monitor 
+    : resolvedTheme === 'dark' 
+      ? Moon 
+      : Sun;
+
+  const CurrentIcon = currentIcon;
+
   return (
-    <button
-      onClick={toggleTheme}
-      className="relative w-12 h-12 rounded-full border border-card-border bg-card hover:border-primary/30 transition-all duration-500 flex items-center justify-center group overflow-hidden cursor-pointer z-50"
-      aria-label={theme === 'dark' ? '切换到日间模式' : '切换到夜间模式'}
-      type="button"
-    >
-      {/* 太阳图标 */}
-      <svg
-        className={`absolute w-5 h-5 transition-all duration-500 ${
-          theme === 'dark' 
-            ? 'opacity-0 rotate-90 scale-0' 
-            : 'opacity-100 rotate-0 scale-100 text-amber-500'
-        }`}
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        strokeWidth={2}
+    <div className="relative" ref={menuRef}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="relative w-10 h-10 rounded-full border border-card-border bg-card hover:border-primary/30 transition-all duration-300 flex items-center justify-center cursor-pointer"
+        aria-label="切换主题"
+        type="button"
       >
-        <circle cx="12" cy="12" r="5" />
-        <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
-      </svg>
-      
-      {/* 月亮图标 */}
-      <svg
-        className={`absolute w-5 h-5 transition-all duration-500 ${
-          theme === 'dark' 
-            ? 'opacity-100 rotate-0 scale-100 text-primary' 
-            : 'opacity-0 -rotate-90 scale-0'
-        }`}
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        strokeWidth={2}
-      >
-        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-      </svg>
-    </button>
+        <CurrentIcon 
+          className={`w-4 h-4 transition-colors ${
+            theme === 'system' 
+              ? 'text-muted' 
+              : resolvedTheme === 'dark' 
+                ? 'text-primary' 
+                : 'text-amber-500'
+          }`} 
+        />
+      </button>
+
+      {/* 下拉菜单 */}
+      {isOpen && (
+        <div className="absolute right-0 top-full mt-2 py-2 w-36 bg-card border border-card-border rounded-xl shadow-xl z-50 animate-fade-up">
+          {themes.map(({ value, label, icon: Icon }) => (
+            <button
+              key={value}
+              onClick={() => {
+                setTheme(value);
+                setIsOpen(false);
+              }}
+              className={`w-full px-4 py-2 flex items-center gap-3 text-sm transition-colors ${
+                theme === value 
+                  ? 'text-primary bg-primary/5' 
+                  : 'text-muted hover:text-foreground hover:bg-card-border/30'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              <span>{label}</span>
+              {theme === value && (
+                <span className="ml-auto text-primary">✓</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

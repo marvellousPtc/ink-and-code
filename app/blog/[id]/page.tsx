@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { getPostByIdAsync, getPostBySlugAsync, getAllPostsAsync } from '@/lib/posts';
 import TiptapRenderer from '@/app/components/TiptapRenderer';
+import Giscus from '@/app/components/Giscus';
 
 // 通过 id 或 slug 获取文章
 async function getPost(idOrSlug: string) {
@@ -105,6 +106,9 @@ export default async function PostPage({ params }: PageProps) {
             </header>
 
             <TiptapRenderer content={post.content} />
+
+            {/* 评论区 */}
+            <Giscus />
 
             <footer className="mt-16 sm:mt-24 md:mt-32 pt-8 sm:pt-12 md:pt-16 border-t border-card-border">
               <div className="flex flex-col md:flex-row justify-between items-center gap-6 sm:gap-8 md:gap-12">

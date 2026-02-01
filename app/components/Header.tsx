@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import ThemeToggle from './ThemeToggle';
+import { Github } from 'lucide-react';
 
 const navItems = [
   { href: '/', label: '首页' },
@@ -44,6 +45,16 @@ export default function Header() {
               );
             })}
           </ul>
+          
+          <a
+            href="https://github.com/marvellousPtc/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-muted hover:text-foreground transition-colors duration-300"
+            aria-label="GitHub"
+          >
+            <Github className="w-5 h-5" />
+          </a>
           
           <ThemeToggle />
         </div>
