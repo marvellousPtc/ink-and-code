@@ -3,12 +3,14 @@
 import { useState, useMemo } from 'react';
 import {
   useCategoryList,
+  usePublicCategoryList,
   useArticleList,
+  usePublicArticleList,
   buildCategoryTree,
   type CategoryTreeNode,
   type ArticleListItem,
 } from '@/lib/hooks';
-import { ChevronRight, ChevronDown, Folder, FolderOpen, FileText, Layout } from 'lucide-react';
+import { ChevronRight, Folder, FolderOpen, FileText, Layout } from 'lucide-react';
 
 // 文章节点
 interface ArticleNodeProps {
@@ -157,6 +159,7 @@ interface CategoryNavProps {
   showAllOption?: boolean;
   searchQuery?: string;
   className?: string;
+  usePublic?: boolean; // 使用公开 API（未登录时使用开发者文章）
 }
 
 export default function CategoryNav({
@@ -167,14 +170,25 @@ export default function CategoryNav({
   showAllOption = true,
   searchQuery = '',
   className = '',
+  usePublic = false,
 }: CategoryNavProps) {
-  const { data: categories, isLoading: categoriesLoading } = useCategoryList();
-  // 只获取已发布的文章，支持搜索
-  const { data: articlesData, isLoading: articlesLoading } = useArticleList({ 
+  // 根据 usePublic 选择不同的数据源
+  const { data: privateCategories, isLoading: privateCategoriesLoading } = useCategoryList();
+  const { data: publicCategories, isLoading: publicCategoriesLoading } = usePublicCategoryList();
+  const { data: privateArticlesData, isLoading: privateArticlesLoading } = useArticleList({ 
     published: true, 
     limit: 1000,
     search: searchQuery || undefined,
   });
+  const { data: publicArticlesData, isLoading: publicArticlesLoading } = usePublicArticleList({ 
+    limit: 1000,
+  });
+
+  // 选择数据源
+  const categories = usePublic ? publicCategories : privateCategories;
+  const categoriesLoading = usePublic ? publicCategoriesLoading : privateCategoriesLoading;
+  const articlesData = usePublic ? publicArticlesData : privateArticlesData;
+  const articlesLoading = usePublic ? publicArticlesLoading : privateArticlesLoading;
   
   // 用户手动折叠的分类 ID（默认全部展开，所以只记录折叠的）
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());

@@ -83,56 +83,55 @@ export function ConfirmProvider({ children }: ConfirmProviderProps) {
       {children}
       <AlertDialog open={isOpen} onOpenChange={(open) => {
         if (!open) {
-          // 点击外部关闭时也要 resolve 为 false
           resolveRef.current?.(false);
           resolveRef.current = null;
         }
         setIsOpen(open);
       }}>
-        <AlertDialogContent className="bg-card/90 backdrop-blur-3xl border border-card-border/60 sm:max-w-[400px] rounded-[3rem] shadow-2xl p-10 overflow-hidden relative border-t-primary/10">
-          {/* 背景装饰 - 改为中心发光 */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-primary/5 blur-[80px] rounded-full pointer-events-none" />
-          
-          <AlertDialogHeader className="text-center relative z-10 flex flex-col items-center">
-            <div className={`w-16 h-16 rounded-[2rem] flex items-center justify-center shadow-inner mb-6 ${
-              options.variant === 'destructive' 
-                ? 'bg-red-500/10 text-red-500 border border-red-500/20' 
-                : 'bg-primary/10 text-primary border border-primary/20'
-            }`}>
-              {options.variant === 'destructive' ? (
-                <Trash2 className="w-8 h-8" />
-              ) : (
-                <HelpCircle className="w-8 h-8" />
-              )}
-            </div>
-            
-            <AlertDialogTitle className="text-2xl font-bold tracking-tight text-foreground mb-2">
-              {options.title}
-            </AlertDialogTitle>
-            
-            <AlertDialogDescription className="text-muted/60 text-base leading-relaxed serif italic max-w-[280px] mx-auto">
-              {options.description}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
+        <AlertDialogContent className="bg-background border border-card-border sm:max-w-[380px] rounded-2xl shadow-2xl p-6 overflow-hidden gap-0">
+            <AlertDialogHeader className="space-y-4">
+              {/* 图标 */}
+              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                options.variant === 'destructive' 
+                  ? 'bg-red-500/10 text-red-500' 
+                  : 'bg-primary/10 text-primary'
+              }`}>
+                {options.variant === 'destructive' ? (
+                  <Trash2 className="w-6 h-6" />
+                ) : (
+                  <AlertCircle className="w-6 h-6" />
+                )}
+              </div>
+              
+              {/* 标题 */}
+              <AlertDialogTitle className="text-lg font-semibold text-foreground">
+                {options.title}
+              </AlertDialogTitle>
+              
+              {/* 描述 */}
+              <AlertDialogDescription className="text-muted text-sm leading-relaxed">
+                {options.description}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
 
-          <AlertDialogFooter className="gap-3 mt-10 relative z-10">
-            <AlertDialogCancel
-              onClick={handleCancel}
-              className="flex-1 bg-background/40 hover:bg-card-border/40 border border-card-border/60 text-muted-foreground hover:text-foreground rounded-2xl h-12 font-bold uppercase tracking-widest text-[11px] transition-all shadow-sm"
-            >
-              {options.cancelText}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleConfirm}
-              className={`flex-1 border-0 rounded-2xl h-12 font-extrabold uppercase tracking-[0.2em] text-[11px] transition-all shadow-md active:scale-95 ${
-                options.variant === 'destructive'
-                  ? 'bg-red-500 text-white hover:bg-red-600 shadow-red-500/20'
-                  : 'bg-primary text-primary-foreground hover:shadow-lg hover:shadow-primary/30'
-              }`}
-            >
-              {options.confirmText}
-            </AlertDialogAction>
-          </AlertDialogFooter>
+            <AlertDialogFooter className="flex-row gap-3 mt-6">
+              <AlertDialogCancel
+                onClick={handleCancel}
+                className="flex-1 bg-card hover:bg-card-border/50 border border-card-border text-foreground rounded-xl h-10 font-medium text-sm transition-all cursor-pointer"
+              >
+                {options.cancelText}
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleConfirm}
+                className={`flex-1 border-0 rounded-xl h-10 font-medium text-sm transition-all cursor-pointer ${
+                  options.variant === 'destructive'
+                    ? 'bg-red-500 text-white hover:bg-red-600'
+                    : 'bg-primary text-primary-foreground hover:bg-primary/90'
+                }`}
+              >
+                {options.confirmText}
+              </AlertDialogAction>
+            </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </ConfirmContext.Provider>

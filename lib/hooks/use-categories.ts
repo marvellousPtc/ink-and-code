@@ -109,6 +109,16 @@ export function useCategoryList() {
 }
 
 /**
+ * 获取公开分类列表（开发者分类，无需登录）
+ */
+export function usePublicCategoryList() {
+  return useSWR<Category[], ApiError>(
+    '/api/category/public-list',
+    fetcher
+  );
+}
+
+/**
  * 创建分类
  */
 async function createCategoryFetcher(

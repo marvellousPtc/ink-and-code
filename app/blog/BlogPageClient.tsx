@@ -13,7 +13,8 @@ import { useState, useRef, useEffect } from 'react';
 import { Calendar, BookOpen, Clock, Hash, Layout, Search, X, FileText, Loader2 } from 'lucide-react';
 import CategoryNav from '@/app/components/CategoryNav';
 import TiptapRenderer from '@/app/components/TiptapRenderer';
-import { useArticle, useArticleList } from '@/lib/hooks';
+import { useArticle, useArticleList, usePublicArticleList } from '@/lib/hooks';
+import { useSession } from 'next-auth/react';
 
 // 搜索防抖 hook
 function useDebounce<T>(value: T, delay: number): T {
@@ -52,6 +53,9 @@ interface BlogPageClientProps {
 }
 
 export default function BlogPageClient({ initialPosts }: BlogPageClientProps) {
+  const { data: session, status } = useSession();
+  const isLoggedIn = status === 'authenticated' && !!session;
+  
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState('');
@@ -63,10 +67,25 @@ export default function BlogPageClient({ initialPosts }: BlogPageClientProps) {
   // 防抖搜索词，避免频繁请求
   const debouncedSearch = useDebounce(searchInput, 300);
 
-  // 获取搜索结果
-  const { data: searchResults, isLoading: searchLoading } = useArticleList(
-    debouncedSearch ? { search: debouncedSearch, published: true, limit: 10 } : undefined
+  // 获取搜索结果 - 登录用户用私有 API，未登录用公开 API
+  const { data: privateSearchResults, isLoading: privateSearchLoading } = useArticleList(
+    isLoggedIn && debouncedSearch ? { search: debouncedSearch, published: true, limit: 10 } : undefined
   );
+  const { data: publicSearchResults, isLoading: publicSearchLoading } = usePublicArticleList(
+    !isLoggedIn && debouncedSearch ? { limit: 100 } : undefined
+  );
+  
+  // 未登录时，前端过滤搜索结果
+  const searchResults = isLoggedIn 
+    ? privateSearchResults 
+    : (publicSearchResults && debouncedSearch ? {
+        ...publicSearchResults,
+        list: publicSearchResults.list.filter(article => 
+          article.title.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+          article.excerpt?.toLowerCase().includes(debouncedSearch.toLowerCase())
+        ).slice(0, 10)
+      } : undefined);
+  const searchLoading = isLoggedIn ? privateSearchLoading : publicSearchLoading;
 
   // 是否显示搜索下拉框
   const showSearchDropdown = isSearchFocused && searchInput.length > 0;
@@ -185,6 +204,7 @@ export default function BlogPageClient({ initialPosts }: BlogPageClientProps) {
               handleSelectArticle(id);
               setShowMobileSidebar(false);
             }}
+            usePublic={!isLoggedIn}
           />
         </div>
       </aside>
@@ -284,6 +304,7 @@ export default function BlogPageClient({ initialPosts }: BlogPageClientProps) {
               selectedArticleId={selectedArticleId}
               onSelectArticle={handleSelectArticle}
               className="px-1"
+              usePublic={!isLoggedIn}
             />
           </div>
           

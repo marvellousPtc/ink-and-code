@@ -123,6 +123,19 @@ export function useArticleList(options?: ArticleListOptions) {
 }
 
 /**
+ * 获取公开文章列表（开发者文章，无需登录）
+ */
+export function usePublicArticleList(options?: Pick<ArticleListOptions, 'categoryId' | 'page' | 'limit'>) {
+  const params = new URLSearchParams();
+  if (options?.categoryId) params.set('categoryId', options.categoryId);
+  if (options?.page) params.set('page', String(options.page));
+  if (options?.limit) params.set('limit', String(options.limit));
+  const queryString = params.toString();
+  const url = `/api/article/public-list${queryString ? `?${queryString}` : ''}`;
+  return useSWR<ArticleListData, ApiError>(url, fetcher);
+}
+
+/**
  * 获取单篇文章
  */
 export function useArticle(id: string | null) {
