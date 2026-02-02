@@ -38,47 +38,44 @@ jobs:
           DIFF=$(cat /tmp/commit_diff.txt | head -c 8000)
           FILES=$(cat /tmp/files_changed.txt)
           
-          # Build prompt (no indentation to avoid AI copying it)
-          read -r -d '' PROMPT << 'PROMPT_END'
-You are a technical blog writer. Write a blog post in Chinese based on this Git commit.
+          # Build prompt - write to file to avoid shell escaping issues
+          cat > /tmp/prompt.txt << 'EOF'
+You are a technical blog writer. Write a blog post in Chinese.
 
-Repository: REPO_PLACEHOLDER
-Commit: MSG_PLACEHOLDER
-Files changed:
-FILES_PLACEHOLDER
+Commit info will be provided below. Requirements:
+1. Write an attractive Chinese title (no quotes around it)
+2. Use Markdown format
+3. Start content with ## heading directly, NO leading spaces, NO > quotes
+4. Include sections: background, implementation, code explanation, summary
+5. 800-1500 words in Chinese
 
-Diff (truncated):
-DIFF_PLACEHOLDER
-
-Requirements:
-1. Write an attractive Chinese title (no quotes)
-2. Use Markdown format, start content directly (no leading spaces or >)
-3. Include: background, implementation details, code explanation, summary
-4. 800-1500 words in Chinese
-5. Output EXACTLY in this format (no extra spaces before markers):
-
----TITLE---
-文章标题
----CONTENT---
+IMPORTANT: Output EXACTLY in this format:
+TITLE_START
+你的中文标题
+TITLE_END
+CONTENT_START
 ## 背景
-
 正文内容...
-
-## 实现
-
+## 实现细节
 代码说明...
-
 ## 总结
-
-总结内容...
----TAGS---
+总结...
+CONTENT_END
+TAGS_START
 标签1,标签2,标签3
-PROMPT_END
-          # Replace placeholders
-          PROMPT="${PROMPT//REPO_PLACEHOLDER/$REPO_NAME}"
-          PROMPT="${PROMPT//MSG_PLACEHOLDER/$COMMIT_MSG}"
-          PROMPT="${PROMPT//FILES_PLACEHOLDER/$FILES}"
-          PROMPT="${PROMPT//DIFF_PLACEHOLDER/$DIFF}"
+TAGS_END
+EOF
+          
+          # Append commit info
+          echo "" >> /tmp/prompt.txt
+          echo "Repository: ${REPO_NAME}" >> /tmp/prompt.txt
+          echo "Commit: ${COMMIT_MSG}" >> /tmp/prompt.txt
+          echo "Files changed:" >> /tmp/prompt.txt
+          echo "${FILES}" >> /tmp/prompt.txt
+          echo "Diff:" >> /tmp/prompt.txt
+          echo "${DIFF}" >> /tmp/prompt.txt
+          
+          PROMPT=$(cat /tmp/prompt.txt)
 
           ESCAPED_PROMPT=$(echo "$PROMPT" | jq -Rs .)
           
@@ -119,10 +116,10 @@ PROMPT_END
           echo "AI Response received, parsing..."
           echo "$GENERATED" > /tmp/ai_output.txt
           
-          # Parse output to separate files (avoid shell expansion issues)
-          awk '/---TITLE---/{flag=1; next} /---CONTENT---/{flag=0} flag' /tmp/ai_output.txt | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' > /tmp/title.txt
-          awk '/---CONTENT---/{flag=1; next} /---TAGS---/{flag=0} flag' /tmp/ai_output.txt > /tmp/content.txt
-          awk '/---TAGS---/{flag=1; next} flag' /tmp/ai_output.txt | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' > /tmp/tags.txt
+          # Parse output to separate files using new markers
+          awk '/TITLE_START/{flag=1; next} /TITLE_END/{flag=0} flag' /tmp/ai_output.txt | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' > /tmp/title.txt
+          awk '/CONTENT_START/{flag=1; next} /CONTENT_END/{flag=0} flag' /tmp/ai_output.txt > /tmp/content.txt  
+          awk '/TAGS_START/{flag=1; next} /TAGS_END/{flag=0} flag' /tmp/ai_output.txt | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' > /tmp/tags.txt
           
           TITLE=$(cat /tmp/title.txt)
           TAGS=$(cat /tmp/tags.txt)
