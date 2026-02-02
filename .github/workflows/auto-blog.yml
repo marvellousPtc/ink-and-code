@@ -148,9 +148,9 @@ jobs:
           echo ""
           echo "========================"
           
-          # Send to blog API
+          # Send to blog API (with -L to follow redirects)
           echo "Publishing to ${INK_AND_CODE_URL}/api/article/create-from-commit ..."
-          RESULT=$(curl -s -w "\n%{http_code}" -X POST "${INK_AND_CODE_URL}/api/article/create-from-commit" \
+          RESULT=$(curl -sL -w "\n%{http_code}" -X POST "${INK_AND_CODE_URL}/api/article/create-from-commit" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $INK_AND_CODE_TOKEN" \
             -d @/tmp/payload.json)
