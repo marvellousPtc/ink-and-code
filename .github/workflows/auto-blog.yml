@@ -18,10 +18,48 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Get commit diff
+      - name: Gather project context
         run: |
+          echo "=== Gathering project context ==="
+          
+          # 1. Git diff
           git diff HEAD~1 HEAD --no-color > /tmp/commit_diff.txt 2>/dev/null || git show HEAD --no-color > /tmp/commit_diff.txt
           git diff --name-only HEAD~1 HEAD > /tmp/files_changed.txt 2>/dev/null || git show --name-only --format="" HEAD > /tmp/files_changed.txt
+          
+          # 2. Project structure (exclude node_modules, .git, etc.)
+          echo "Project Structure:" > /tmp/project_structure.txt
+          find . -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.json" -o -name "*.md" -o -name "*.yml" -o -name "*.yaml" \) \
+            ! -path "*/node_modules/*" ! -path "*/.git/*" ! -path "*/dist/*" ! -path "*/.next/*" ! -path "*/pnpm-lock.yaml" \
+            | head -200 >> /tmp/project_structure.txt
+          
+          # 3. Read changed files content (limit each file to 500 lines)
+          echo "" > /tmp/changed_files_content.txt
+          while IFS= read -r file; do
+            if [[ -f "$file" ]]; then
+              echo "=== File: $file ===" >> /tmp/changed_files_content.txt
+              head -500 "$file" >> /tmp/changed_files_content.txt
+              echo "" >> /tmp/changed_files_content.txt
+            fi
+          done < /tmp/files_changed.txt
+          
+          # 4. Read key config files
+          echo "" > /tmp/key_configs.txt
+          for config in "package.json" "README.md" "prisma/schema.prisma"; do
+            if [[ -f "$config" ]]; then
+              echo "=== $config ===" >> /tmp/key_configs.txt
+              head -100 "$config" >> /tmp/key_configs.txt
+              echo "" >> /tmp/key_configs.txt
+            fi
+          done
+          
+          # 5. Read SKILL.md if exists
+          if [[ -f "skills/auto-blog-from-commit/SKILL.md" ]]; then
+            cat "skills/auto-blog-from-commit/SKILL.md" > /tmp/skill_guide.txt
+          else
+            echo "No SKILL.md found" > /tmp/skill_guide.txt
+          fi
+          
+          echo "Context gathered successfully"
 
       - name: Generate and publish blog post
         env:
@@ -36,36 +74,63 @@ jobs:
           REPO_NAME: ${{ github.repository }}
         shell: bash
         run: |
-          DIFF=$(cat /tmp/commit_diff.txt | head -c 8000)
+          # Load context files (with size limits)
+          DIFF=$(cat /tmp/commit_diff.txt | head -c 6000)
           FILES=$(cat /tmp/files_changed.txt)
+          PROJECT_STRUCTURE=$(cat /tmp/project_structure.txt | head -c 3000)
+          CHANGED_FILES_CONTENT=$(cat /tmp/changed_files_content.txt | head -c 15000)
+          KEY_CONFIGS=$(cat /tmp/key_configs.txt | head -c 3000)
+          SKILL_GUIDE=$(cat /tmp/skill_guide.txt | head -c 2000)
           
-          printf '%s\n' "You are a technical blog writer. Write a Chinese blog post about this commit." > /tmp/prompt.txt
+          # Build comprehensive prompt
+          printf '%s\n' "You are a senior technical blog writer with deep understanding of software development." > /tmp/prompt.txt
+          printf '%s\n' "Write a high-quality Chinese technical blog post based on the following project context." >> /tmp/prompt.txt
           printf '%s\n' "" >> /tmp/prompt.txt
+          printf '%s\n' "=== PROJECT INFO ===" >> /tmp/prompt.txt
           printf '%s\n' "Repository - ${REPO_NAME}" >> /tmp/prompt.txt
           printf '%s\n' "Commit - ${COMMIT_MSG}" >> /tmp/prompt.txt
-          printf '%s\n' "Files - ${FILES}" >> /tmp/prompt.txt
-          printf '%s\n' "Diff - ${DIFF}" >> /tmp/prompt.txt
           printf '%s\n' "" >> /tmp/prompt.txt
-          printf '%s\n' "Requirements -" >> /tmp/prompt.txt
-          printf '%s\n' "1. Chinese title without quotes" >> /tmp/prompt.txt
-          printf '%s\n' "2. Markdown format, start with ## headings, NO leading spaces, NO blockquotes" >> /tmp/prompt.txt
-          printf '%s\n' "3. Include background, implementation, summary sections" >> /tmp/prompt.txt
-          printf '%s\n' "4. 800-1500 words in Chinese" >> /tmp/prompt.txt
+          printf '%s\n' "=== PROJECT STRUCTURE ===" >> /tmp/prompt.txt
+          printf '%s\n' "${PROJECT_STRUCTURE}" >> /tmp/prompt.txt
           printf '%s\n' "" >> /tmp/prompt.txt
-          printf '%s\n' "Output format (use these EXACT markers) -" >> /tmp/prompt.txt
+          printf '%s\n' "=== KEY CONFIGS ===" >> /tmp/prompt.txt
+          printf '%s\n' "${KEY_CONFIGS}" >> /tmp/prompt.txt
+          printf '%s\n' "" >> /tmp/prompt.txt
+          printf '%s\n' "=== CHANGED FILES ===" >> /tmp/prompt.txt
+          printf '%s\n' "${FILES}" >> /tmp/prompt.txt
+          printf '%s\n' "" >> /tmp/prompt.txt
+          printf '%s\n' "=== CHANGED FILES CONTENT ===" >> /tmp/prompt.txt
+          printf '%s\n' "${CHANGED_FILES_CONTENT}" >> /tmp/prompt.txt
+          printf '%s\n' "" >> /tmp/prompt.txt
+          printf '%s\n' "=== GIT DIFF ===" >> /tmp/prompt.txt
+          printf '%s\n' "${DIFF}" >> /tmp/prompt.txt
+          printf '%s\n' "" >> /tmp/prompt.txt
+          printf '%s\n' "=== WRITING GUIDE ===" >> /tmp/prompt.txt
+          printf '%s\n' "${SKILL_GUIDE}" >> /tmp/prompt.txt
+          printf '%s\n' "" >> /tmp/prompt.txt
+          printf '%s\n' "=== REQUIREMENTS ===" >> /tmp/prompt.txt
+          printf '%s\n' "1. Write an attractive Chinese title (no quotes)" >> /tmp/prompt.txt
+          printf '%s\n' "2. Markdown format, use ## headings, NO leading spaces" >> /tmp/prompt.txt
+          printf '%s\n' "3. Explain WHY this change was made, not just WHAT changed" >> /tmp/prompt.txt
+          printf '%s\n' "4. Include code snippets with explanations" >> /tmp/prompt.txt
+          printf '%s\n' "5. 1000-2000 words in Chinese" >> /tmp/prompt.txt
+          printf '%s\n' "" >> /tmp/prompt.txt
+          printf '%s\n' "=== OUTPUT FORMAT (use EXACT markers) ===" >> /tmp/prompt.txt
           printf '%s\n' "TITLE_START" >> /tmp/prompt.txt
           printf '%s\n' "中文标题" >> /tmp/prompt.txt
           printf '%s\n' "TITLE_END" >> /tmp/prompt.txt
           printf '%s\n' "CONTENT_START" >> /tmp/prompt.txt
           printf '%s\n' "## 背景" >> /tmp/prompt.txt
-          printf '%s\n' "内容..." >> /tmp/prompt.txt
-          printf '%s\n' "## 实现" >> /tmp/prompt.txt
-          printf '%s\n' "内容..." >> /tmp/prompt.txt
+          printf '%s\n' "为什么做这个改动..." >> /tmp/prompt.txt
+          printf '%s\n' "## 技术实现" >> /tmp/prompt.txt
+          printf '%s\n' "核心代码解析..." >> /tmp/prompt.txt
+          printf '%s\n' "## 关键代码" >> /tmp/prompt.txt
+          printf '%s\n' "代码片段和解释..." >> /tmp/prompt.txt
           printf '%s\n' "## 总结" >> /tmp/prompt.txt
-          printf '%s\n' "内容..." >> /tmp/prompt.txt
+          printf '%s\n' "收获和思考..." >> /tmp/prompt.txt
           printf '%s\n' "CONTENT_END" >> /tmp/prompt.txt
           printf '%s\n' "TAGS_START" >> /tmp/prompt.txt
-          printf '%s\n' "标签1,标签2" >> /tmp/prompt.txt
+          printf '%s\n' "标签1,标签2,标签3" >> /tmp/prompt.txt
           printf '%s\n' "TAGS_END" >> /tmp/prompt.txt
           
           PROMPT=$(cat /tmp/prompt.txt)
