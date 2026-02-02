@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from './auth';
+import { prisma } from './prisma';
+import crypto from 'crypto';
 
 /**
  * 统一 API 响应格式
@@ -32,6 +34,85 @@ export async function requireAuth(): Promise<{
     return { userId: null, error: ApiError.unauthorized('请先登录') };
   }
   return { userId, error: null };
+}
+
+/**
+ * 通过 Bearer Token 验证用户
+ * 支持 Authorization: Bearer ink_xxxxxxxx 格式
+ * 返回 { userId, error }
+ */
+export async function requireTokenAuth(request: Request): Promise<{
+  userId: string | null;
+  error: NextResponse | null;
+}> {
+  const authHeader = request.headers.get('authorization');
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return { userId: null, error: ApiError.unauthorized('缺少有效的 Authorization header') };
+  }
+
+  const token = authHeader.slice(7); // 去掉 "Bearer " 前缀
+  
+  if (!token.startsWith('ink_')) {
+    return { userId: null, error: ApiError.unauthorized('无效的 Token 格式') };
+  }
+
+  // 哈希 Token 用于查询
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+  try {
+    const apiToken = await prisma.apiToken.findUnique({
+      where: { token: tokenHash },
+      select: {
+        id: true,
+        userId: true,
+        expiresAt: true,
+      },
+    });
+
+    if (!apiToken) {
+      return { userId: null, error: ApiError.unauthorized('Token 不存在或已失效') };
+    }
+
+    // 检查是否过期
+    if (apiToken.expiresAt && apiToken.expiresAt < new Date()) {
+      return { userId: null, error: ApiError.unauthorized('Token 已过期') };
+    }
+
+    // 更新最后使用时间（异步，不阻塞响应）
+    prisma.apiToken.update({
+      where: { id: apiToken.id },
+      data: { lastUsedAt: new Date() },
+    }).catch(console.error);
+
+    return { userId: apiToken.userId, error: null };
+  } catch (error) {
+    console.error('Token auth error:', error);
+    return { userId: null, error: ApiError.internal('Token 验证失败') };
+  }
+}
+
+/**
+ * 同时支持 Session 和 Token 认证
+ * 优先使用 Token 认证（如果提供了 Authorization header）
+ * 否则使用 Session 认证
+ */
+export async function requireAuthOrToken(request: Request): Promise<{
+  userId: string | null;
+  error: NextResponse | null;
+  authMethod: 'session' | 'token' | null;
+}> {
+  const authHeader = request.headers.get('authorization');
+  
+  // 如果提供了 Authorization header，使用 Token 认证
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const result = await requireTokenAuth(request);
+    return { ...result, authMethod: result.userId ? 'token' : null };
+  }
+  
+  // 否则使用 Session 认证
+  const result = await requireAuth();
+  return { ...result, authMethod: result.userId ? 'session' : null };
 }
 
 /**

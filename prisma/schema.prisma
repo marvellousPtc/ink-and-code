@@ -31,6 +31,7 @@ model User {
   posts         Post[]
   categories    Category[]
   siteConfig    SiteConfig?
+  apiTokens     ApiToken[]
 
   @@map("users")
 }
@@ -164,4 +165,22 @@ model Session {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("sessions")
+}
+
+// API Token（用于外部服务认证）
+model ApiToken {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  name        String                          // Token 名称，如 "GitHub Actions"
+  token       String    @unique               // Token 值（哈希存储）
+  tokenPrefix String    @map("token_prefix")  // Token 前缀（用于显示，如 "ink_xxxxx"）
+  lastUsedAt  DateTime? @map("last_used_at")  // 最后使用时间
+  expiresAt   DateTime? @map("expires_at")    // 过期时间（可选）
+  createdAt   DateTime  @default(now()) @map("created_at")
+  
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("api_tokens")
 }

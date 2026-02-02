@@ -8,6 +8,7 @@ import { ProfileSection } from './components/ProfileSection';
 import { SiteInfoSection } from './components/SiteInfoSection';
 import { SocialLinksSection } from './components/SocialLinksSection';
 import { OssConfigSection } from './components/OssConfigSection';
+import { ApiTokenSection } from './components/ApiTokenSection';
 
 interface UserProfile {
   id: string;
@@ -301,6 +302,8 @@ export default function SettingsPage() {
                     testResult={ossTestResult}
                     isTesting={testingOss}
                 />
+
+                <ApiTokenSection />
             </div>
         </div>
 
