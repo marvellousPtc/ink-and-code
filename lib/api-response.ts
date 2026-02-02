@@ -158,6 +158,11 @@ export const ApiError = {
     return error(message, 401);
   },
 
+  /** 403 禁止访问 */
+  forbidden(message = 'Forbidden') {
+    return error(message, 403);
+  },
+
   /** 400 请求参数错误 */
   badRequest(message = 'Bad request') {
     return error(message, 400);
