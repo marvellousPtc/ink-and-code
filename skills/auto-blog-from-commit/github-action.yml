@@ -1,14 +1,14 @@
 # Auto Blog from Commit - GitHub Actions 工作流模板
-# 
-# 使用方法：
+#
+# 使用方法:
 # 1. 将此文件复制到你的仓库 .github/workflows/auto-blog.yml
-# 2. 在仓库 Settings -> Secrets and variables -> Actions 中添加以下 secrets：
-#    - INK_AND_CODE_TOKEN: 你的博客 API Token（在博客设置页面创建）
-#    - INK_AND_CODE_URL: 你的博客地址（如 https://your-blog.com）
-#    - AI API 密钥（三选一）：
-#      - DEEPSEEK_API_KEY: DeepSeek API 密钥（推荐，便宜好用）
-#      - ANTHROPIC_API_KEY: Claude API 密钥
-#      - OPENAI_API_KEY: OpenAI API 密钥
+# 2. 在仓库 Settings -> Secrets and variables -> Actions 中添加以下 secrets
+#    - INK_AND_CODE_TOKEN (你的博客 API Token)
+#    - INK_AND_CODE_URL (你的博客地址)
+#    - AI API 密钥 (三选一)
+#      - DEEPSEEK_API_KEY (DeepSeek, 推荐)
+#      - ANTHROPIC_API_KEY (Claude)
+#      - OPENAI_API_KEY (OpenAI)
 # 3. 提交时在 commit message 中包含 [blog] 标识即可触发
 
 name: Auto Blog from Commit
