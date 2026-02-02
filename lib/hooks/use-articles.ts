@@ -26,7 +26,20 @@ export interface Article {
 /**
  * 文章列表项（不含 content）
  */
-export type ArticleListItem = Omit<Article, 'content'>;
+export interface ArticleListItem {
+  id: string;
+  slug: string;
+  title: string;
+  excerpt: string | null;
+  tags: string[];
+  coverImage: string | null;
+  published: boolean;
+  categoryId: string | null;
+  sortOrder: number;
+  category: Category | null;
+  createdAt: string;
+  updatedAt: string;
+}
 
 /**
  * 分页信息
@@ -139,7 +152,7 @@ export function useCreateArticle() {
  */
 async function updateArticleFetcher(
   url: string,
-  { arg }: { arg: ArticleInput & { id: string } }
+  { arg }: { arg: Partial<ArticleInput> & { id: string } }
 ) {
   const res = await post<Article>(url, arg as unknown as Record<string, unknown>);
   return res.data;
@@ -161,4 +174,27 @@ async function deleteArticleFetcher(
 
 export function useDeleteArticle() {
   return useSWRMutation('/api/article/delete', deleteArticleFetcher);
+}
+
+/**
+ * 批量重排序文章的数据类型
+ */
+export interface ReorderItem {
+  id: string;
+  sortOrder: number;
+  categoryId?: string | null;
+}
+
+/**
+ * 批量重排序文章的 mutation
+ */
+async function reorderArticlesFetcher(
+  url: string,
+  { arg }: { arg: { items: ReorderItem[] } }
+) {
+  await post(url, arg as unknown as Record<string, unknown>);
+}
+
+export function useReorderArticles() {
+  return useSWRMutation('/api/article/reorder', reorderArticlesFetcher);
 }

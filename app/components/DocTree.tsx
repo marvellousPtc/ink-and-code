@@ -5,7 +5,7 @@
  * :copyright: (c) 2026, Tungee
  * :date created: 2026-01-30 15:28:33
  * :last editor: PTC
- * :date last edited: 2026-02-02 13:51:34
+ * :date last edited: 2026-02-02 14:30:00
  */
 'use client';
 
@@ -17,13 +17,13 @@ import {
   useUpdateCategory,
   useDeleteCategory,
   useCreateArticle,
+  useReorderArticles,
   buildCategoryTree,
   type CategoryTreeNode,
   type ArticleListItem,
 } from '@/lib/hooks';
 import {
   ChevronRight,
-  ChevronDown,
   Folder,
   FolderOpen,
   FileText,
@@ -32,6 +32,7 @@ import {
   FilePlus,
   Search,
   Layout,
+  GripVertical,
 } from 'lucide-react';
 import { useConfirm } from '@/app/components/ConfirmDialog';
 
@@ -43,6 +44,8 @@ interface TreeContextValue {
   editValue: string;
   expandedIds: Set<string>;
   articlesByCategory: Record<string, ArticleListItem[]>;
+  draggedArticle: ArticleListItem | null;
+  dropTargetInfo: { categoryId: string | null; insertIndex: number } | null;
   onSelect: (id: string, type: 'category' | 'article') => void;
   onStartEdit: (id: string, name: string) => void;
   onEndEdit: (save: boolean) => void;
@@ -52,51 +55,155 @@ interface TreeContextValue {
   onDeleteArticle: (id: string) => void;
   onAddCategory: (parentId: string | null) => void;
   onAddArticle: (categoryId: string | null) => void;
+  onDragStart: (article: ArticleListItem) => void;
+  onDragEnd: () => void;
+  onDragOverCategory: (categoryId: string | null) => void;
+  onDragOverArticle: (categoryId: string | null, insertIndex: number) => void;
+  onDrop: () => void;
 }
 
 const TreeContext = createContext<TreeContextValue | null>(null);
 
-// 文章节点
+// 文章节点（可拖拽）
 interface ArticleNodeProps {
   article: ArticleListItem;
   depth: number;
+  index: number;
+  categoryId: string | null;
 }
 
-function ArticleNode({ article, depth }: ArticleNodeProps) {
+function ArticleNode({ article, depth, index, categoryId }: ArticleNodeProps) {
   const ctx = useContext(TreeContext)!;
   const isSelected = ctx.selectedId === article.id && ctx.selectedType === 'article';
+  const isDragging = ctx.draggedArticle?.id === article.id;
   const paddingLeft = 16 + depth * 16;
+
+  // 检查是否是插入位置
+  const isInsertBefore =
+    ctx.dropTargetInfo &&
+    ctx.dropTargetInfo.categoryId === categoryId &&
+    ctx.dropTargetInfo.insertIndex === index &&
+    ctx.draggedArticle?.id !== article.id;
+
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData('text/plain', article.id);
+    e.dataTransfer.effectAllowed = 'move';
+    ctx.onDragStart(article);
+  };
+
+  const handleDragEnd = () => {
+    ctx.onDragEnd();
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    
+    // 计算鼠标在元素的上半部分还是下半部分
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const insertIndex = e.clientY < midY ? index : index + 1;
+    
+    ctx.onDragOverArticle(categoryId, insertIndex);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    ctx.onDrop();
+  };
+
+  return (
+    <>
+      {isInsertBefore && (
+        <div className="h-0.5 mx-3 my-0.5 bg-primary rounded-full animate-pulse" />
+      )}
+      <div
+        draggable
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+        style={{ paddingLeft }}
+        className={`group flex items-center gap-2.5 py-1.5 pr-2.5 mx-1 rounded-lg cursor-grab active:cursor-grabbing transition-all duration-200 ${
+          isDragging ? 'opacity-30 scale-95' : ''
+        } ${
+          isSelected
+            ? 'bg-primary/10 text-primary font-medium shadow-[inset_0_0_0_1px_rgba(var(--primary),0.1)]'
+            : 'hover:bg-card-border/40 text-muted/80 hover:text-foreground'
+        }`}
+        onClick={() => ctx.onSelect(article.id, 'article')}
+      >
+        <GripVertical className="w-3 h-3 opacity-30 group-hover:opacity-60 shrink-0" />
+        <FileText className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'scale-110' : 'opacity-40 group-hover:opacity-70'}`} />
+        <span className="flex-1 text-[13px] truncate tracking-tight">{article.title || '无标题'}</span>
+        {!article.published && (
+          <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 font-bold uppercase tracking-wider">
+            草稿
+          </span>
+        )}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            ctx.onDeleteArticle(article.id);
+          }}
+          className="p-1 opacity-0 group-hover:opacity-100 hover:bg-red-500/10 hover:text-red-400 rounded-md transition-all cursor-pointer"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </>
+  );
+}
+
+// 文章列表尾部放置区域
+interface ArticleListTailProps {
+  categoryId: string | null;
+  articlesLength: number;
+  depth: number;
+}
+
+function ArticleListTail({ categoryId, articlesLength, depth }: ArticleListTailProps) {
+  const ctx = useContext(TreeContext)!;
+  const paddingLeft = 16 + depth * 16;
+
+  const isInsertHere =
+    ctx.dropTargetInfo &&
+    ctx.dropTargetInfo.categoryId === categoryId &&
+    ctx.dropTargetInfo.insertIndex === articlesLength &&
+    ctx.draggedArticle;
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    ctx.onDragOverArticle(categoryId, articlesLength);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    ctx.onDrop();
+  };
+
+  if (!ctx.draggedArticle) return null;
 
   return (
     <div
-      className={`group flex items-center gap-2.5 py-1.5 pr-2.5 mx-1 rounded-lg cursor-pointer transition-all duration-200 ${isSelected
-          ? 'bg-primary/10 text-primary font-medium shadow-[inset_0_0_0_1px_rgba(var(--primary),0.1)]'
-          : 'hover:bg-card-border/40 text-muted/80 hover:text-foreground'
-        }`}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
       style={{ paddingLeft }}
-      onClick={() => ctx.onSelect(article.id, 'article')}
+      className="h-6 mx-1"
     >
-      <FileText className={`w-3.5 h-3.5 shrink-0 transition-transform ${isSelected ? 'scale-110' : 'opacity-40 group-hover:opacity-70'}`} />
-      <span className="flex-1 text-[13px] truncate tracking-tight">{article.title || '无标题'}</span>
-      {!article.published && (
-        <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 font-bold uppercase tracking-wider">
-          草稿
-        </span>
+      {isInsertHere && (
+        <div className="h-0.5 mx-2 bg-primary rounded-full animate-pulse" />
       )}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          ctx.onDeleteArticle(article.id);
-        }}
-        className="p-1 opacity-0 group-hover:opacity-100 hover:bg-red-500/10 hover:text-red-400 rounded-md transition-all cursor-pointer"
-      >
-        <Trash2 className="w-3.5 h-3.5" />
-      </button>
     </div>
   );
 }
 
-// 分类节点
+// 分类节点（可放置）
 interface CategoryNodeProps {
   node: CategoryTreeNode;
 }
@@ -107,6 +214,9 @@ function CategoryNode({ node }: CategoryNodeProps) {
   const isEditing = ctx.editingId === node.id;
   const isSelected = ctx.selectedId === node.id && ctx.selectedType === 'category';
   const isExpanded = ctx.expandedIds.has(node.id);
+  const isDropTarget =
+    ctx.dropTargetInfo?.categoryId === node.id &&
+    ctx.dropTargetInfo?.insertIndex === -1;
   const articles = ctx.articlesByCategory[node.id] || [];
   const hasChildren = node.children.length > 0 || articles.length > 0;
   const paddingLeft = 12 + node.depth * 16;
@@ -123,10 +233,31 @@ function CategoryNode({ node }: CategoryNodeProps) {
     else if (e.key === 'Escape') ctx.onEndEdit(false);
   };
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    ctx.onDragOverCategory(node.id);
+  };
+
+  const handleDragLeave = () => {
+    // Don't clear if still over children
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    ctx.onDrop();
+  };
+
   return (
     <div className="space-y-0.5">
       <div
-        className={`group flex items-center gap-2 py-2 pr-2.5 mx-1 rounded-xl cursor-pointer transition-all duration-200 ${isSelected
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={`group flex items-center gap-2 py-2 pr-2.5 mx-1 rounded-xl cursor-pointer transition-all duration-200 ${
+          isDropTarget ? 'bg-primary/20 ring-2 ring-primary/50 scale-[1.02]' : ''
+        } ${isSelected
             ? 'bg-primary/5 text-primary font-semibold'
             : 'hover:bg-card-border/30 text-muted/90 hover:text-foreground'
           }`}
@@ -229,9 +360,20 @@ function CategoryNode({ node }: CategoryNodeProps) {
           {node.children.map((child) => (
             <CategoryNode key={child.id} node={child} />
           ))}
-          {articles.map((article) => (
-            <ArticleNode key={article.id} article={article} depth={node.depth + 1} />
+          {articles.map((article, index) => (
+            <ArticleNode
+              key={article.id}
+              article={article}
+              depth={node.depth + 1}
+              index={index}
+              categoryId={node.id}
+            />
           ))}
+          <ArticleListTail
+            categoryId={node.id}
+            articlesLength={articles.length}
+            depth={node.depth + 1}
+          />
         </div>
       )}
     </div>
@@ -250,10 +392,10 @@ export default function DocTree({
   selectedId,
   selectedType,
   onSelect,
-  onAddArticle: _onAddArticle, // 保留接口兼容性，但内部使用 handleCreateArticle
+  onAddArticle: _onAddArticle,
   onDeleteArticle,
 }: DocTreeProps) {
-  void _onAddArticle; // 避免 unused 警告
+  void _onAddArticle;
   const confirm = useConfirm();
   const { data: categories, mutate: refreshCategories } = useCategoryList();
   const { data: articlesData, mutate: refreshArticles } = useArticleList({ limit: 1000, showAll: true });
@@ -261,19 +403,23 @@ export default function DocTree({
   const { trigger: updateCategory } = useUpdateCategory();
   const { trigger: deleteCategory } = useDeleteCategory();
   const { trigger: createArticle } = useCreateArticle();
+  const { trigger: reorderArticles } = useReorderArticles();
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
+  const [draggedArticle, setDraggedArticle] = useState<ArticleListItem | null>(null);
+  const [dropTargetInfo, setDropTargetInfo] = useState<{ categoryId: string | null; insertIndex: number } | null>(null);
 
   const tree = categories ? buildCategoryTree(categories) : [];
   const articles = useMemo(() => articlesData?.list || [], [articlesData?.list]);
 
-  // 按分类分组文章
+  // 按分类分组文章（按 sortOrder 排序）
   const articlesByCategory = useMemo(() => {
     const map: Record<string, ArticleListItem[]> = { uncategorized: [] };
-    articles.forEach((article) => {
+    const sortedArticles = [...articles].sort((a, b) => a.sortOrder - b.sortOrder);
+    sortedArticles.forEach((article) => {
       const catId = article.categoryId || 'uncategorized';
       if (!map[catId]) map[catId] = [];
       map[catId].push(article);
@@ -373,7 +519,6 @@ export default function DocTree({
     }
   };
 
-  // 直接在 DocTree 中创建文章
   const handleCreateArticle = async (categoryId: string | null) => {
     try {
       const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -385,16 +530,11 @@ export default function DocTree({
         categoryId: categoryId,
       });
 
-      console.log('Article created:', result);
-
-      // 刷新文章列表
       await refreshArticles();
 
-      // 选中新创建的文章
       if (result) {
         const newId = (result as { id: string }).id;
         onSelect(newId, 'article');
-        // 如果有分类，展开该分类
         if (categoryId) {
           setExpandedIds((prev) => new Set([...prev, categoryId]));
         }
@@ -404,6 +544,85 @@ export default function DocTree({
     }
   };
 
+  // 拖拽处理
+  const handleDragStart = (article: ArticleListItem) => {
+    setDraggedArticle(article);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedArticle(null);
+    setDropTargetInfo(null);
+  };
+
+  const handleDragOverCategory = (categoryId: string | null) => {
+    setDropTargetInfo({ categoryId, insertIndex: -1 });
+  };
+
+  const handleDragOverArticle = (categoryId: string | null, insertIndex: number) => {
+    setDropTargetInfo({ categoryId, insertIndex });
+  };
+
+  const handleDrop = async () => {
+    if (!draggedArticle || !dropTargetInfo) {
+      handleDragEnd();
+      return;
+    }
+
+    const targetCategoryId = dropTargetInfo.categoryId === 'uncategorized' ? null : dropTargetInfo.categoryId;
+    const targetArticles = articlesByCategory[dropTargetInfo.categoryId || 'uncategorized'] || [];
+    
+    // 如果是移动到分类（insertIndex === -1），放到末尾
+    let insertIndex = dropTargetInfo.insertIndex === -1 ? targetArticles.length : dropTargetInfo.insertIndex;
+
+    // 如果是同分类内移动，需要调整 index
+    const isSameCategory = (draggedArticle.categoryId || null) === targetCategoryId;
+    const currentIndex = targetArticles.findIndex((a) => a.id === draggedArticle.id);
+    
+    if (isSameCategory && currentIndex !== -1) {
+      // 如果目标位置和当前位置一样或相邻，不需要移动
+      if (insertIndex === currentIndex || insertIndex === currentIndex + 1) {
+        handleDragEnd();
+        return;
+      }
+      // 如果向后移动，需要减 1（因为删除当前项后，后面的索引会前移）
+      if (insertIndex > currentIndex) {
+        insertIndex--;
+      }
+    }
+
+    try {
+      // 构建新的排序列表
+      const newArticles = targetArticles.filter((a) => a.id !== draggedArticle.id);
+      newArticles.splice(insertIndex, 0, draggedArticle);
+
+      // 生成重排序数据
+      const reorderItems = newArticles.map((article, idx) => ({
+        id: article.id,
+        sortOrder: idx,
+        categoryId: targetCategoryId,
+      }));
+
+      // 如果是跨分类移动，被拖动的文章需要更新 categoryId
+      if (!isSameCategory) {
+        const draggedItem = reorderItems.find((item) => item.id === draggedArticle.id);
+        if (draggedItem) {
+          draggedItem.categoryId = targetCategoryId;
+        }
+      }
+
+      await reorderArticles({ items: reorderItems });
+      await refreshArticles();
+      
+      if (targetCategoryId) {
+        setExpandedIds((prev) => new Set([...prev, targetCategoryId]));
+      }
+    } catch (error) {
+      console.error('Failed to reorder articles:', error);
+    }
+
+    handleDragEnd();
+  };
+
   const contextValue: TreeContextValue = {
     selectedId,
     selectedType,
@@ -411,6 +630,8 @@ export default function DocTree({
     editValue,
     expandedIds,
     articlesByCategory,
+    draggedArticle,
+    dropTargetInfo,
     onSelect: (id, type) => onSelect(id, type),
     onStartEdit: handleStartEdit,
     onEndEdit: handleEndEdit,
@@ -420,6 +641,11 @@ export default function DocTree({
     onDeleteArticle,
     onAddCategory: handleAddCategory,
     onAddArticle: handleCreateArticle,
+    onDragStart: handleDragStart,
+    onDragEnd: handleDragEnd,
+    onDragOverCategory: handleDragOverCategory,
+    onDragOverArticle: handleDragOverArticle,
+    onDrop: handleDrop,
   };
 
   return (
@@ -465,8 +691,14 @@ export default function DocTree({
                 <div className="w-1 h-1 rounded-full bg-primary/50" />
                 <span>找到 {filteredArticles.length} 个结果</span>
               </div>
-              {filteredArticles.map((article) => (
-                <ArticleNode key={article.id} article={article} depth={0} />
+              {filteredArticles.map((article, index) => (
+                <ArticleNode
+                  key={article.id}
+                  article={article}
+                  depth={0}
+                  index={index}
+                  categoryId={article.categoryId}
+                />
               ))}
             </div>
           ) : (
@@ -484,9 +716,20 @@ export default function DocTree({
                     <span>{articlesByCategory.uncategorized.length}</span>
                   </div>
                   <div className="mt-1">
-                    {articlesByCategory.uncategorized.map((article) => (
-                      <ArticleNode key={article.id} article={article} depth={0} />
+                    {articlesByCategory.uncategorized.map((article, index) => (
+                      <ArticleNode
+                        key={article.id}
+                        article={article}
+                        depth={0}
+                        index={index}
+                        categoryId="uncategorized"
+                      />
                     ))}
+                    <ArticleListTail
+                      categoryId="uncategorized"
+                      articlesLength={articlesByCategory.uncategorized.length}
+                      depth={0}
+                    />
                   </div>
                 </div>
               )}

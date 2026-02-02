@@ -59,6 +59,7 @@ export async function POST(request: Request) {
         ...(data.tags !== undefined && { tags: data.tags }),
         ...(data.published !== undefined && { published: data.published }),
         ...(data.categoryId !== undefined && { categoryId: data.categoryId || null }),
+        ...(data.sortOrder !== undefined && { sortOrder: data.sortOrder }),
       },
       include: {
         category: true,

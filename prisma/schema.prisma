@@ -112,6 +112,7 @@ model Post {
   coverImage String?   @map("cover_image")
   tags       String[]  @default([])
   published  Boolean   @default(false)
+  sortOrder  Int       @default(0) @map("sort_order")
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @updatedAt @map("updated_at")
   

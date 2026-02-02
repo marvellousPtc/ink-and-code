@@ -224,7 +224,10 @@ export default function TiptapEditor({
       if (currentContent !== content) {
         const parsed = parseContent(content);
         if (parsed) {
-          editor.commands.setContent(parsed);
+          // 使用 queueMicrotask 避免 flushSync 警告
+          queueMicrotask(() => {
+            editor.commands.setContent(parsed);
+          });
         }
       }
     }

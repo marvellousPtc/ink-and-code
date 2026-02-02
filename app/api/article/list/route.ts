@@ -58,6 +58,7 @@ export async function GET(request: Request) {
           coverImage: true,
           published: true,
           categoryId: true,
+          sortOrder: true,
           category: {
             select: {
               id: true,
@@ -70,7 +71,7 @@ export async function GET(request: Request) {
           createdAt: true,
           updatedAt: true,
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
         skip,
         take: limit,
       }),
