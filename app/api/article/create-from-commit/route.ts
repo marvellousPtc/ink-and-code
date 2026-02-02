@@ -38,11 +38,17 @@ export async function POST(request: Request) {
     const validationError = validateRequired(data, ['title', 'content']);
     if (validationError) return validationError;
 
+    // 限制标题长度（PostgreSQL btree 索引限制）
+    let title = data.title;
+    if (title.length > 200) {
+      title = title.slice(0, 197) + '...';
+    }
+
     // 生成 slug（如果没有提供）
     let slug = data.slug;
     if (!slug) {
       // 从标题生成 slug
-      slug = generateSlug(data.title);
+      slug = generateSlug(title);
     }
 
     // 确保 slug 唯一
@@ -92,7 +98,7 @@ export async function POST(request: Request) {
     // 创建文章
     const article = await prisma.post.create({
       data: {
-        title: data.title,
+        title,
         slug,
         content,
         excerpt: data.excerpt || generateExcerpt(data.content),
