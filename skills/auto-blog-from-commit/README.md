@@ -4,6 +4,7 @@
 
 [![Auto Blog](https://img.shields.io/badge/Auto%20Blog-Enabled-brightgreen)](https://github.com)
 [![DeepSeek](https://img.shields.io/badge/AI-DeepSeek%20%7C%20Claude%20%7C%20OpenAI-blue)](https://platform.deepseek.com)
+[![GitHub Actions](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF)](https://github.com/features/actions)
 
 ## 工作原理
 
