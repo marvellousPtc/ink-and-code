@@ -106,15 +106,29 @@ jobs:
           echo "AI Response received, parsing..."
           echo "$GENERATED" > /tmp/ai_output.txt
           
+          echo "=== Raw AI Output (first 2000 chars) ==="
+          head -c 2000 /tmp/ai_output.txt
+          echo ""
+          echo "=== End of preview ==="
+          
           awk '/TITLE_START/{flag=1; next} /TITLE_END/{flag=0} flag' /tmp/ai_output.txt | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' > /tmp/title.txt
           awk '/CONTENT_START/{flag=1; next} /CONTENT_END/{flag=0} flag' /tmp/ai_output.txt > /tmp/content.txt  
           awk '/TAGS_START/{flag=1; next} /TAGS_END/{flag=0} flag' /tmp/ai_output.txt | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' > /tmp/tags.txt
           
           TITLE=$(cat /tmp/title.txt)
           TAGS=$(cat /tmp/tags.txt)
+          CONTENT_LINES=$(wc -l < /tmp/content.txt)
+          CONTENT_SIZE=$(wc -c < /tmp/content.txt)
           
+          echo "=== Parsed Results ==="
           echo "Title - $TITLE"
           echo "Tags - $TAGS"
+          echo "Content lines - $CONTENT_LINES"
+          echo "Content size - $CONTENT_SIZE bytes"
+          echo "=== Content Preview (first 500 chars) ==="
+          head -c 500 /tmp/content.txt
+          echo ""
+          echo "=== End content preview ==="
           
           if [ -z "$TITLE" ] || [ ! -s /tmp/content.txt ]; then
             echo "Error - Failed to parse AI output"
