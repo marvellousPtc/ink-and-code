@@ -18,7 +18,6 @@ jobs:
           fetch-depth: 2
 
       - name: Get commit diff
-        id: diff
         run: |
           git diff HEAD~1 HEAD --no-color > /tmp/commit_diff.txt 2>/dev/null || git show HEAD --no-color > /tmp/commit_diff.txt
           git diff --name-only HEAD~1 HEAD > /tmp/files_changed.txt 2>/dev/null || git show --name-only --format="" HEAD > /tmp/files_changed.txt
@@ -34,43 +33,43 @@ jobs:
           COMMIT_SHA: ${{ github.sha }}
           COMMIT_URL: ${{ github.event.head_commit.url }}
           REPO_NAME: ${{ github.repository }}
+        shell: bash
         run: |
           DIFF=$(cat /tmp/commit_diff.txt | head -c 8000)
           FILES=$(cat /tmp/files_changed.txt)
           
-          # Build prompt
-          PROMPT="You are a technical blog writer. Write a Chinese blog post about this commit.
-
-Repository: ${REPO_NAME}
-Commit: ${COMMIT_MSG}
-Files: ${FILES}
-Diff: ${DIFF}
-
-Requirements:
-1. Chinese title without quotes
-2. Markdown format, start with ## headings (NO leading spaces, NO > blockquotes)
-3. Include: background, implementation, summary
-4. 800-1500 words in Chinese
-
-Output format (use these EXACT markers):
-TITLE_START
-中文标题
-TITLE_END
-CONTENT_START
-## 背景
-内容...
-## 实现
-内容...
-## 总结
-内容...
-CONTENT_END
-TAGS_START
-标签1,标签2
-TAGS_END"
-
+          printf '%s\n' "You are a technical blog writer. Write a Chinese blog post about this commit." > /tmp/prompt.txt
+          printf '%s\n' "" >> /tmp/prompt.txt
+          printf '%s\n' "Repository - ${REPO_NAME}" >> /tmp/prompt.txt
+          printf '%s\n' "Commit - ${COMMIT_MSG}" >> /tmp/prompt.txt
+          printf '%s\n' "Files - ${FILES}" >> /tmp/prompt.txt
+          printf '%s\n' "Diff - ${DIFF}" >> /tmp/prompt.txt
+          printf '%s\n' "" >> /tmp/prompt.txt
+          printf '%s\n' "Requirements -" >> /tmp/prompt.txt
+          printf '%s\n' "1. Chinese title without quotes" >> /tmp/prompt.txt
+          printf '%s\n' "2. Markdown format, start with ## headings, NO leading spaces, NO blockquotes" >> /tmp/prompt.txt
+          printf '%s\n' "3. Include background, implementation, summary sections" >> /tmp/prompt.txt
+          printf '%s\n' "4. 800-1500 words in Chinese" >> /tmp/prompt.txt
+          printf '%s\n' "" >> /tmp/prompt.txt
+          printf '%s\n' "Output format (use these EXACT markers) -" >> /tmp/prompt.txt
+          printf '%s\n' "TITLE_START" >> /tmp/prompt.txt
+          printf '%s\n' "中文标题" >> /tmp/prompt.txt
+          printf '%s\n' "TITLE_END" >> /tmp/prompt.txt
+          printf '%s\n' "CONTENT_START" >> /tmp/prompt.txt
+          printf '%s\n' "## 背景" >> /tmp/prompt.txt
+          printf '%s\n' "内容..." >> /tmp/prompt.txt
+          printf '%s\n' "## 实现" >> /tmp/prompt.txt
+          printf '%s\n' "内容..." >> /tmp/prompt.txt
+          printf '%s\n' "## 总结" >> /tmp/prompt.txt
+          printf '%s\n' "内容..." >> /tmp/prompt.txt
+          printf '%s\n' "CONTENT_END" >> /tmp/prompt.txt
+          printf '%s\n' "TAGS_START" >> /tmp/prompt.txt
+          printf '%s\n' "标签1,标签2" >> /tmp/prompt.txt
+          printf '%s\n' "TAGS_END" >> /tmp/prompt.txt
+          
+          PROMPT=$(cat /tmp/prompt.txt)
           ESCAPED_PROMPT=$(echo "$PROMPT" | jq -Rs .)
           
-          # Call AI API
           if [ -n "$DEEPSEEK_API_KEY" ]; then
             echo "Using DeepSeek API..."
             RESPONSE=$(curl -s https://api.deepseek.com/v1/chat/completions \
@@ -94,20 +93,19 @@ TAGS_END"
               -d "{\"model\":\"gpt-4o\",\"max_tokens\":4096,\"messages\":[{\"role\":\"user\",\"content\":$ESCAPED_PROMPT}]}")
             GENERATED=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
           else
-            echo "Error: No AI API key provided"
+            echo "Error - No AI API key provided"
             exit 1
           fi
           
           if [ -z "$GENERATED" ]; then
-            echo "Error: AI generation failed"
-            echo "Response: $RESPONSE"
+            echo "Error - AI generation failed"
+            echo "Response - $RESPONSE"
             exit 1
           fi
           
           echo "AI Response received, parsing..."
           echo "$GENERATED" > /tmp/ai_output.txt
           
-          # Parse output to separate files using new markers
           awk '/TITLE_START/{flag=1; next} /TITLE_END/{flag=0} flag' /tmp/ai_output.txt | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' > /tmp/title.txt
           awk '/CONTENT_START/{flag=1; next} /CONTENT_END/{flag=0} flag' /tmp/ai_output.txt > /tmp/content.txt  
           awk '/TAGS_START/{flag=1; next} /TAGS_END/{flag=0} flag' /tmp/ai_output.txt | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' > /tmp/tags.txt
@@ -115,17 +113,16 @@ TAGS_END"
           TITLE=$(cat /tmp/title.txt)
           TAGS=$(cat /tmp/tags.txt)
           
-          echo "Title: $TITLE"
-          echo "Tags: $TAGS"
+          echo "Title - $TITLE"
+          echo "Tags - $TAGS"
           
           if [ -z "$TITLE" ] || [ ! -s /tmp/content.txt ]; then
-            echo "Error: Failed to parse AI output"
-            echo "Raw output:"
+            echo "Error - Failed to parse AI output"
+            echo "Raw output -"
             cat /tmp/ai_output.txt
             exit 1
           fi
           
-          # Build JSON payload using jq with file input for content
           jq -n \
             --arg title "$TITLE" \
             --rawfile content /tmp/content.txt \
@@ -147,30 +144,26 @@ TAGS_END"
               }
             }' > /tmp/payload.json
           
-          # Debug: show payload
           echo "=== Payload Preview ==="
           cat /tmp/payload.json | head -c 1000
           echo ""
           echo "========================"
           
-          # Send to blog API (with -L to follow redirects)
           echo "Publishing to ${INK_AND_CODE_URL}/api/article/create-from-commit ..."
           RESULT=$(curl -sL -w "\n%{http_code}" -X POST "${INK_AND_CODE_URL}/api/article/create-from-commit" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $INK_AND_CODE_TOKEN" \
             -d @/tmp/payload.json)
           
-          # Extract HTTP status code (last line)
           HTTP_CODE=$(echo "$RESULT" | tail -n1)
           BODY=$(echo "$RESULT" | sed '$d')
           
-          echo "HTTP Status: $HTTP_CODE"
-          echo "API Response: $BODY"
+          echo "HTTP Status - $HTTP_CODE"
+          echo "API Response - $BODY"
           
-          # Check if response is valid JSON
           if ! echo "$BODY" | jq -e . > /dev/null 2>&1; then
-            echo "Error: API returned invalid JSON"
-            echo "Raw response:"
+            echo "Error - API returned invalid JSON"
+            echo "Raw response -"
             echo "$BODY"
             exit 1
           fi
@@ -178,7 +171,7 @@ TAGS_END"
           CODE=$(echo "$BODY" | jq -r '.code // 500')
           if [ "$CODE" != "201" ]; then
             echo "Failed to publish"
-            echo "Error: $(echo "$BODY" | jq -r '.message // "Unknown error"')"
+            echo "Error - $(echo "$BODY" | jq -r '.message // "Unknown error"')"
             exit 1
           fi
           
@@ -186,6 +179,6 @@ TAGS_END"
           echo ""
           echo "=========================================="
           echo "Blog post created successfully!"
-          echo "Title: $TITLE"
-          echo "URL: $ARTICLE_URL"
+          echo "Title - $TITLE"
+          echo "URL - $ARTICLE_URL"
           echo "=========================================="
