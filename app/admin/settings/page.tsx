@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
-import { ArrowLeft, Save, Globe, User, Link2, Loader2, CheckCircle2, XCircle, Copy, ExternalLink, Sparkles } from 'lucide-react';
+import { ArrowLeft, Save, Globe, User, Link2, Loader2, CheckCircle2, XCircle, Copy, ExternalLink, Sparkles, Image, Eye, EyeOff, HelpCircle, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface UserProfile {
   id: string;
@@ -23,7 +23,30 @@ interface SiteConfig {
   twitterUrl: string | null;
   linkedinUrl: string | null;
   websiteUrl: string | null;
+  // OSS 配置
+  ossRegion: string | null;
+  ossBucket: string | null;
+  ossAccessKeyId: string | null;
+  ossAccessKeySecret: string | null;
+  ossDir: string | null;
+  ossDomain: string | null;
 }
+
+// 阿里云 OSS 区域列表
+const OSS_REGIONS = [
+  { value: 'oss-cn-hangzhou', label: '华东1（杭州）' },
+  { value: 'oss-cn-shanghai', label: '华东2（上海）' },
+  { value: 'oss-cn-qingdao', label: '华北1（青岛）' },
+  { value: 'oss-cn-beijing', label: '华北2（北京）' },
+  { value: 'oss-cn-zhangjiakou', label: '华北3（张家口）' },
+  { value: 'oss-cn-huhehaote', label: '华北5（呼和浩特）' },
+  { value: 'oss-cn-shenzhen', label: '华南1（深圳）' },
+  { value: 'oss-cn-guangzhou', label: '华南2（广州）' },
+  { value: 'oss-cn-chengdu', label: '西南1（成都）' },
+  { value: 'oss-cn-hongkong', label: '中国香港' },
+  { value: 'oss-ap-southeast-1', label: '新加坡' },
+  { value: 'oss-us-west-1', label: '美国西部' },
+];
 
 export default function SettingsPage() {
   const { data: session, status } = useSession();
@@ -97,7 +120,20 @@ export default function SettingsPage() {
     twitterUrl: '',
     linkedinUrl: '',
     websiteUrl: '',
+    // OSS 配置
+    ossRegion: '',
+    ossBucket: '',
+    ossAccessKeyId: '',
+    ossAccessKeySecret: '',
+    ossDir: '',
+    ossDomain: '',
   });
+  
+  // OSS 相关状态
+  const [showOssSecret, setShowOssSecret] = useState(false);
+  const [testingOss, setTestingOss] = useState(false);
+  const [ossTestResult, setOssTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [showOssHelp, setShowOssHelp] = useState(false);
 
   useEffect(() => {
     if (status === 'authenticated') {
@@ -149,6 +185,13 @@ export default function SettingsPage() {
           twitterUrl: siteData.data.twitterUrl || '',
           linkedinUrl: siteData.data.linkedinUrl || '',
           websiteUrl: siteData.data.websiteUrl || '',
+          // OSS 配置
+          ossRegion: siteData.data.ossRegion || '',
+          ossBucket: siteData.data.ossBucket || '',
+          ossAccessKeyId: siteData.data.ossAccessKeyId || '',
+          ossAccessKeySecret: siteData.data.ossAccessKeySecret || '',
+          ossDir: siteData.data.ossDir || '',
+          ossDomain: siteData.data.ossDomain || '',
         });
       }
     } catch (error) {
@@ -170,6 +213,40 @@ export default function SettingsPage() {
       showMessage('success', '链接已复制到剪贴板');
     } catch {
       showMessage('error', '复制失败，请手动复制');
+    }
+  };
+
+  // 测试 OSS 连接
+  const testOssConnection = async () => {
+    // 先保存配置
+    if (!siteForm.ossRegion || !siteForm.ossBucket || !siteForm.ossAccessKeyId || !siteForm.ossAccessKeySecret) {
+      setOssTestResult({ success: false, message: '请先填写完整的 OSS 配置' });
+      return;
+    }
+    
+    setTestingOss(true);
+    setOssTestResult(null);
+    
+    try {
+      // 先保存配置
+      await fetch('/api/user/site-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(siteForm),
+      });
+      
+      // 测试连接
+      const res = await fetch('/api/upload/image');
+      const data = await res.json();
+      
+      setOssTestResult({
+        success: data.data?.connected || false,
+        message: data.message,
+      });
+    } catch {
+      setOssTestResult({ success: false, message: '测试失败，请检查网络' });
+    } finally {
+      setTestingOss(false);
     }
   };
 
@@ -441,6 +518,178 @@ export default function SettingsPage() {
                     className="w-full px-3 py-2 bg-background border border-card-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-all"
                   />
                 </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 图床配置 */}
+          <div className="p-5 rounded-2xl border border-card-border bg-card/20">
+            <div className="flex items-center gap-2 mb-4">
+              <Image className="w-4 h-4 text-orange-500" />
+              <span className="text-sm font-semibold text-foreground">图床配置</span>
+              <span className="text-xs text-muted">（阿里云 OSS）</span>
+            </div>
+            
+            <p className="text-xs text-muted mb-4">
+              配置图床后，在编辑器中粘贴或拖拽图片会自动上传。
+              <span className="text-orange-500">注意：Bucket 需设为「公共读」权限才能正常显示图片</span>
+            </p>
+            
+            <div className="space-y-4">
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-muted mb-1.5">Region 区域</label>
+                  <select
+                    value={siteForm.ossRegion}
+                    onChange={(e) => setSiteForm({ ...siteForm, ossRegion: e.target.value })}
+                    className="w-full px-3 py-2.5 bg-background border border-card-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-all"
+                  >
+                    <option value="">请选择区域</option>
+                    {OSS_REGIONS.map((region) => (
+                      <option key={region.value} value={region.value}>
+                        {region.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-muted mb-1.5">Bucket 名称</label>
+                  <input
+                    type="text"
+                    value={siteForm.ossBucket}
+                    onChange={(e) => setSiteForm({ ...siteForm, ossBucket: e.target.value })}
+                    placeholder="your-bucket-name"
+                    className="w-full px-3 py-2.5 bg-background border border-card-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-muted mb-1.5">AccessKey ID</label>
+                  <input
+                    type="text"
+                    value={siteForm.ossAccessKeyId}
+                    onChange={(e) => setSiteForm({ ...siteForm, ossAccessKeyId: e.target.value })}
+                    placeholder="LTAI5t..."
+                    className="w-full px-3 py-2.5 bg-background border border-card-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-all font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-muted mb-1.5">AccessKey Secret</label>
+                  <div className="relative">
+                    <input
+                      type={showOssSecret ? 'text' : 'password'}
+                      value={siteForm.ossAccessKeySecret}
+                      onChange={(e) => setSiteForm({ ...siteForm, ossAccessKeySecret: e.target.value })}
+                      placeholder="••••••••"
+                      className="w-full px-3 py-2.5 pr-10 bg-background border border-card-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-all font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowOssSecret(!showOssSecret)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-foreground"
+                    >
+                      {showOssSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-muted mb-1.5">存储目录</label>
+                  <input
+                    type="text"
+                    value={siteForm.ossDir}
+                    onChange={(e) => setSiteForm({ ...siteForm, ossDir: e.target.value })}
+                    placeholder="blog/images"
+                    className="w-full px-3 py-2.5 bg-background border border-card-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-all"
+                  />
+                  <p className="mt-1 text-[10px] text-muted">图片存储的文件夹路径</p>
+                </div>
+                <div>
+                  <label className="block text-xs text-muted mb-1.5">自定义域名（可选）</label>
+                  <input
+                    type="text"
+                    value={siteForm.ossDomain}
+                    onChange={(e) => setSiteForm({ ...siteForm, ossDomain: e.target.value })}
+                    placeholder="https://cdn.example.com"
+                    className="w-full px-3 py-2.5 bg-background border border-card-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-all"
+                  />
+                  <p className="mt-1 text-[10px] text-muted">绑定的 CDN 或自定义域名</p>
+                </div>
+              </div>
+
+              {/* 测试连接 */}
+              <div className="pt-3 border-t border-card-border/50 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={testOssConnection}
+                  disabled={testingOss}
+                  className="px-4 py-2 bg-card border border-card-border rounded-lg text-sm font-medium hover:bg-card-border/30 transition-colors disabled:opacity-50 flex items-center gap-2"
+                >
+                  {testingOss ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      测试中...
+                    </>
+                  ) : (
+                    '测试连接'
+                  )}
+                </button>
+                {ossTestResult && (
+                  <span className={`text-xs flex items-center gap-1 ${ossTestResult.success ? 'text-green-500' : 'text-red-500'}`}>
+                    {ossTestResult.success ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
+                    {ossTestResult.message}
+                  </span>
+                )}
+              </div>
+
+              {/* 配置帮助 */}
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowOssHelp(!showOssHelp)}
+                  className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground transition-colors"
+                >
+                  <HelpCircle className="w-3.5 h-3.5" />
+                  <span>配置遇到问题？查看帮助</span>
+                  {showOssHelp ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </button>
+                
+                {showOssHelp && (
+                  <div className="mt-3 p-4 bg-background/50 border border-card-border/50 rounded-lg text-xs text-muted space-y-3">
+                    <div>
+                      <p className="font-medium text-foreground mb-1">1. 创建 RAM 子账号（推荐）</p>
+                      <p>前往 <a href="https://ram.console.aliyun.com/users" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">RAM 访问控制</a> → 用户 → 创建用户 → 勾选「OpenAPI 调用访问」→ 保存 AccessKey</p>
+                    </div>
+                    
+                    <div>
+                      <p className="font-medium text-foreground mb-1">2. 授予 OSS 权限</p>
+                      <p>在 RAM 用户详情 → 权限管理 → 新增授权 → 搜索并添加 <code className="px-1 py-0.5 bg-card rounded">AliyunOSSFullAccess</code></p>
+                    </div>
+                    
+                    <div>
+                      <p className="font-medium text-foreground mb-1">3. 确认 Bucket 信息</p>
+                      <ul className="list-disc list-inside space-y-1 ml-2">
+                        <li>在 <a href="https://oss.console.aliyun.com/bucket" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">OSS 控制台</a> 确认 Bucket 名称正确</li>
+                        <li>确认 Region 与 Bucket 所在区域一致（查看 Bucket 概览的 Endpoint 地址）</li>
+                        <li>确认创建 Bucket 和 RAM 用户的是同一个阿里云账号</li>
+                        <li className="text-orange-500">⚠️ Bucket 读写权限需设为<strong>「公共读」</strong>，否则图片无法显示</li>
+                      </ul>
+                    </div>
+                    
+                    <div>
+                      <p className="font-medium text-foreground mb-1">4. 常见错误</p>
+                      <ul className="list-disc list-inside space-y-1 ml-2">
+                        <li><code className="px-1 py-0.5 bg-card rounded">AccessDenied</code>：RAM 用户没有 OSS 权限，请添加授权</li>
+                        <li><code className="px-1 py-0.5 bg-card rounded">NoSuchBucket</code>：Bucket 名称错误或 Region 不匹配</li>
+                        <li><code className="px-1 py-0.5 bg-card rounded">InvalidAccessKeyId</code>：AccessKey ID 错误或已禁用</li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

@@ -53,6 +53,18 @@ model SiteConfig {
   linkedinUrl String?  @map("linkedin_url")
   websiteUrl  String?  @map("website_url")
   
+  // 阿里云 OSS 图床配置
+  ossRegion          String?  @map("oss_region")            // 如 oss-cn-hangzhou
+  ossBucket          String?  @map("oss_bucket")            // Bucket 名称
+  ossAccessKeyId     String?  @map("oss_access_key_id")     // AccessKey ID
+  ossAccessKeySecret String?  @map("oss_access_key_secret") // AccessKey Secret
+  ossDir             String?  @map("oss_dir")               // 存储目录，如 blog/images/
+  ossDomain          String?  @map("oss_domain")            // 自定义域名（可选）
+  
+  // 默认图床使用统计
+  defaultOssUsedBytes  BigInt   @default(0) @map("default_oss_used_bytes")  // 已使用字节数
+  defaultOssUsedCount  Int      @default(0) @map("default_oss_used_count")  // 已上传图片数
+  
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 

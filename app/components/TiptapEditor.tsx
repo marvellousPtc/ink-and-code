@@ -13,10 +13,10 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Link from '@tiptap/extension-link';
-import Image from '@tiptap/extension-image';
+import { ResizableImage } from './ResizableImageExtension';
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 import { common, createLowlight } from 'lowlight';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import {
   Bold,
   Italic,
@@ -34,9 +34,10 @@ import {
   Minus,
   Undo,
   Redo,
+  Loader2,
+  Upload,
 } from 'lucide-react';
 import { Toggle } from '@/components/ui/toggle';
-import { Separator } from '@/components/ui/separator';
 import {
   Tooltip,
   TooltipContent,
@@ -92,12 +93,67 @@ export default function TiptapEditor({
   placeholder = '开始写作...',
   headerContent,
 }: TiptapEditorProps) {
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const parseContent = (str: string) => {
     if (!str || str === '') return undefined;
     try {
       return JSON.parse(str);
     } catch {
       return undefined;
+    }
+  };
+
+  // 上传图片到服务器
+  const uploadImage = useCallback(async (file: File): Promise<string | null> => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      setUploading(true);
+      setUploadError(null);
+      
+      const res = await fetch('/api/upload/image', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (data.code === 200 && data.data?.url) {
+        return data.data.url;
+      } else {
+        setUploadError(data.message || '上传失败');
+        return null;
+      }
+    } catch (error) {
+      console.error('Upload failed:', error);
+      setUploadError('上传失败，请重试');
+      return null;
+    } finally {
+      setUploading(false);
+    }
+  }, []);
+
+  // 处理文件上传（点击按钮触发）
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    for (const file of Array.from(files)) {
+      if (file.type.startsWith('image/')) {
+        const url = await uploadImage(file);
+        if (url && editor) {
+          editor.chain().focus().setImage({ src: url }).run();
+        }
+      }
+    }
+
+    // 清空 input 以便再次选择同一文件
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
@@ -118,10 +174,9 @@ export default function TiptapEditor({
           class: 'text-primary underline',
         },
       }),
-      Image.configure({
-        HTMLAttributes: {
-          class: 'max-w-full rounded-lg',
-        },
+      ResizableImage.configure({
+        inline: false,
+        allowBase64: true,
       }),
       CodeBlockLowlight.configure({
         lowlight,
@@ -175,6 +230,61 @@ export default function TiptapEditor({
     }
   }, [editor, content]);
 
+  // 处理粘贴和拖拽图片
+  useEffect(() => {
+    if (!editor) return;
+
+    const handlePaste = (event: ClipboardEvent) => {
+      const items = event.clipboardData?.items;
+      if (!items) return;
+
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith('image/')) {
+          event.preventDefault();
+          const file = item.getAsFile();
+          if (file) {
+            uploadImage(file).then((url) => {
+              if (url) {
+                editor.chain().focus().setImage({ src: url }).run();
+              }
+            });
+          }
+          return;
+        }
+      }
+    };
+
+    const handleDrop = (event: DragEvent) => {
+      const files = event.dataTransfer?.files;
+      if (!files || files.length === 0) return;
+
+      const imageFiles = Array.from(files).filter((f) =>
+        f.type.startsWith('image/')
+      );
+
+      if (imageFiles.length === 0) return;
+
+      event.preventDefault();
+
+      imageFiles.forEach((file) => {
+        uploadImage(file).then((url) => {
+          if (url) {
+            editor.chain().focus().setImage({ src: url }).run();
+          }
+        });
+      });
+    };
+
+    const editorElement = editor.view.dom;
+    editorElement.addEventListener('paste', handlePaste);
+    editorElement.addEventListener('drop', handleDrop);
+
+    return () => {
+      editorElement.removeEventListener('paste', handlePaste);
+      editorElement.removeEventListener('drop', handleDrop);
+    };
+  }, [editor, uploadImage]);
+
   const setLink = useCallback(() => {
     if (!editor) return;
     const previousUrl = editor.getAttributes('link').href;
@@ -187,7 +297,13 @@ export default function TiptapEditor({
     editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
   }, [editor]);
 
-  const addImage = useCallback(() => {
+  // 打开文件选择对话框
+  const openFileDialog = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  // 通过 URL 添加图片
+  const addImageByUrl = useCallback(() => {
     if (!editor) return;
     const url = window.prompt('输入图片 URL:');
     if (url) {
@@ -203,6 +319,42 @@ export default function TiptapEditor({
 
   return (
     <div className="group/editor flex flex-col min-h-[600px]">
+      {/* 隐藏的文件输入 */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={handleFileSelect}
+        className="hidden"
+      />
+      
+      {/* 上传状态提示 */}
+      {(uploading || uploadError) && (
+        <div className={`px-4 py-2 text-sm flex items-center gap-2 ${
+          uploadError 
+            ? 'bg-red-500/10 text-red-500 border-b border-red-500/20' 
+            : 'bg-primary/10 text-primary border-b border-primary/20'
+        }`}>
+          {uploading ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>正在上传图片...</span>
+            </>
+          ) : uploadError ? (
+            <>
+              <span>{uploadError}</span>
+              <button 
+                onClick={() => setUploadError(null)}
+                className="ml-auto text-xs underline"
+              >
+                关闭
+              </button>
+            </>
+          ) : null}
+        </div>
+      )}
+      
       {/* 悬浮工具栏 */}
       <div className="sticky top-0 z-20 flex flex-wrap items-center gap-1 p-2 bg-background/80 backdrop-blur-xl border border-card-border/60 shadow-sm transition-all duration-300 opacity-40 hover:opacity-100 group-focus-within/editor:opacity-100 group-focus-within/editor:shadow-md">
         {/* 文本格式 */}
@@ -309,7 +461,18 @@ export default function TiptapEditor({
           >
             <LinkIcon className="size-3.5" />
           </ToolbarToggle>
-          <ToolbarToggle onPressedChange={addImage} tooltip="插入图片">
+          <ToolbarToggle 
+            onPressedChange={openFileDialog} 
+            tooltip="上传图片"
+            disabled={uploading}
+          >
+            {uploading ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Upload className="size-3.5" />
+            )}
+          </ToolbarToggle>
+          <ToolbarToggle onPressedChange={addImageByUrl} tooltip="图片 URL">
             <ImageIcon className="size-3.5" />
           </ToolbarToggle>
           <ToolbarToggle

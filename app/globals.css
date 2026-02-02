@@ -393,6 +393,21 @@ pre code {
   margin: 1rem 0;
 }
 
+/* 可调整大小的图片样式 */
+.tiptap .resizable-image-wrapper {
+  display: block;
+  margin: 1rem 0;
+}
+
+.tiptap .resizable-image-wrapper > div {
+  max-width: 100%;
+}
+
+.tiptap .resizable-image-wrapper img {
+  display: block;
+  user-select: none;
+}
+
 .tiptap hr {
   border: none;
   border-top: 1px solid var(--card-border);
