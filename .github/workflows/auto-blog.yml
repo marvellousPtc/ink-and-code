@@ -1,0 +1,236 @@
+# Auto Blog from Commit - GitHub Actions 工作流模板
+# 
+# 使用方法：
+# 1. 将此文件复制到你的仓库 .github/workflows/auto-blog.yml
+# 2. 在仓库 Settings -> Secrets and variables -> Actions 中添加以下 secrets：
+#    - INK_AND_CODE_TOKEN: 你的博客 API Token（在博客设置页面创建）
+#    - INK_AND_CODE_URL: 你的博客地址（如 https://your-blog.com）
+#    - AI API 密钥（三选一）：
+#      - DEEPSEEK_API_KEY: DeepSeek API 密钥（推荐，便宜好用）
+#      - ANTHROPIC_API_KEY: Claude API 密钥
+#      - OPENAI_API_KEY: OpenAI API 密钥
+# 3. 提交时在 commit message 中包含 [blog] 标识即可触发
+
+name: Auto Blog from Commit
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  generate-blog:
+    # 只有 commit message 包含 [blog] 时才运行
+    if: contains(github.event.head_commit.message, '[blog]')
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # 获取最近2次提交以便 diff
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Get commit diff
+        id: diff
+        run: |
+          # 获取本次 commit 的 diff
+          DIFF=$(git diff HEAD~1 HEAD --no-color 2>/dev/null || git show HEAD --no-color)
+          
+          # 将 diff 保存到文件（处理多行）
+          echo "$DIFF" > /tmp/commit_diff.txt
+          
+          # 获取变更的文件列表
+          FILES_CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git show --name-only --format="" HEAD)
+          echo "files_changed<<EOF" >> $GITHUB_OUTPUT
+          echo "$FILES_CHANGED" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Generate blog post with AI
+        id: generate
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          # 读取 diff
+          DIFF=$(cat /tmp/commit_diff.txt)
+          
+          # 准备 prompt
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          REPO="${{ github.repository }}"
+          FILES_CHANGED="${{ steps.diff.outputs.files_changed }}"
+          
+          # 创建 AI 请求的 prompt
+          PROMPT="你是一位技术博客作家。请根据以下 Git commit 信息，撰写一篇技术博客文章。
+
+## Commit 信息
+- 仓库: ${REPO}
+- Commit Message: ${COMMIT_MSG}
+- 变更的文件:
+${FILES_CHANGED}
+
+## Commit Diff
+\`\`\`
+${DIFF:0:10000}
+\`\`\`
+
+## 要求
+1. 文章标题要吸引人，体现技术亮点
+2. 用 Markdown 格式撰写
+3. 包含以下内容：
+   - 背景/问题描述
+   - 解决方案/实现细节
+   - 关键代码说明
+   - 总结和收获
+4. 代码块使用正确的语言标记
+5. 字数控制在 800-1500 字
+6. 使用中文撰写
+
+请直接输出文章内容，格式为：
+---TITLE---
+<文章标题>
+---CONTENT---
+<文章正文 Markdown>
+---TAGS---
+<标签1>,<标签2>,<标签3>"
+
+          # 使用 DeepSeek（优先）、Claude 或 OpenAI API
+          # 转义 JSON 特殊字符
+          ESCAPED_PROMPT=$(echo "$PROMPT" | jq -Rs .)
+          
+          if [ -n "$DEEPSEEK_API_KEY" ]; then
+            echo "Using DeepSeek API..."
+            
+            RESPONSE=$(curl -s https://api.deepseek.com/v1/chat/completions \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
+              -d "{
+                \"model\": \"deepseek-chat\",
+                \"max_tokens\": 4096,
+                \"messages\": [{
+                  \"role\": \"user\",
+                  \"content\": $ESCAPED_PROMPT
+                }]
+              }")
+            
+            GENERATED=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+            
+          elif [ -n "$ANTHROPIC_API_KEY" ]; then
+            echo "Using Claude API..."
+            
+            RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
+              -H "Content-Type: application/json" \
+              -H "x-api-key: $ANTHROPIC_API_KEY" \
+              -H "anthropic-version: 2023-06-01" \
+              -d "{
+                \"model\": \"claude-sonnet-4-20250514\",
+                \"max_tokens\": 4096,
+                \"messages\": [{
+                  \"role\": \"user\",
+                  \"content\": $ESCAPED_PROMPT
+                }]
+              }")
+            
+            # 提取生成的内容
+            GENERATED=$(echo "$RESPONSE" | jq -r '.content[0].text // empty')
+            
+          elif [ -n "$OPENAI_API_KEY" ]; then
+            echo "Using OpenAI API..."
+            
+            RESPONSE=$(curl -s https://api.openai.com/v1/chat/completions \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer $OPENAI_API_KEY" \
+              -d "{
+                \"model\": \"gpt-4o\",
+                \"max_tokens\": 4096,
+                \"messages\": [{
+                  \"role\": \"user\",
+                  \"content\": $ESCAPED_PROMPT
+                }]
+              }")
+            
+            GENERATED=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+          else
+            echo "Error: No AI API key provided (need DEEPSEEK_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY)"
+            exit 1
+          fi
+          
+          if [ -z "$GENERATED" ]; then
+            echo "Error: AI generation failed"
+            echo "Response: $RESPONSE"
+            exit 1
+          fi
+          
+          # 保存生成的内容
+          echo "$GENERATED" > /tmp/generated_post.txt
+          
+          # 解析标题、内容、标签
+          TITLE=$(echo "$GENERATED" | sed -n '/---TITLE---/,/---CONTENT---/p' | head -n -1 | tail -n +2 | tr -d '\n')
+          CONTENT=$(echo "$GENERATED" | sed -n '/---CONTENT---/,/---TAGS---/p' | head -n -1 | tail -n +2)
+          TAGS=$(echo "$GENERATED" | sed -n '/---TAGS---/,$p' | tail -n +2 | tr -d '\n')
+          
+          # 输出到 GitHub Actions 变量
+          echo "title=$TITLE" >> $GITHUB_OUTPUT
+          
+          # 多行内容需要特殊处理
+          {
+            echo 'content<<CONTENT_EOF'
+            echo "$CONTENT"
+            echo 'CONTENT_EOF'
+          } >> $GITHUB_OUTPUT
+          
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+
+      - name: Publish to blog
+        env:
+          INK_AND_CODE_TOKEN: ${{ secrets.INK_AND_CODE_TOKEN }}
+          INK_AND_CODE_URL: ${{ secrets.INK_AND_CODE_URL }}
+        run: |
+          TITLE="${{ steps.generate.outputs.title }}"
+          CONTENT="${{ steps.generate.outputs.content }}"
+          TAGS="${{ steps.generate.outputs.tags }}"
+          
+          # 将 tags 转为 JSON 数组
+          TAGS_JSON=$(echo "$TAGS" | tr ',' '\n' | jq -R . | jq -s .)
+          
+          # 转义内容
+          ESCAPED_CONTENT=$(echo "$CONTENT" | jq -Rs .)
+          ESCAPED_TITLE=$(echo "$TITLE" | jq -Rs . | sed 's/^"//;s/"$//')
+          
+          # 发送到博客 API
+          RESPONSE=$(curl -s -X POST "${INK_AND_CODE_URL}/api/article/create-from-commit" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $INK_AND_CODE_TOKEN" \
+            -d "{
+              \"title\": \"$ESCAPED_TITLE\",
+              \"content\": $ESCAPED_CONTENT,
+              \"tags\": $TAGS_JSON,
+              \"published\": false,
+              \"commitInfo\": {
+                \"repo\": \"${{ github.repository }}\",
+                \"sha\": \"${{ github.sha }}\",
+                \"message\": $(echo '${{ github.event.head_commit.message }}' | jq -Rs .),
+                \"url\": \"${{ github.event.head_commit.url }}\"
+              }
+            }")
+          
+          echo "API Response: $RESPONSE"
+          
+          # 检查响应
+          CODE=$(echo "$RESPONSE" | jq -r '.code // 500')
+          if [ "$CODE" != "201" ]; then
+            echo "Failed to publish blog post"
+            echo "Error: $(echo "$RESPONSE" | jq -r '.message // "Unknown error"')"
+            exit 1
+          fi
+          
+          ARTICLE_URL=$(echo "$RESPONSE" | jq -r '.data.url // "N/A"')
+          echo "✅ Blog post created successfully!"
+          echo "📝 Title: $TITLE"
+          echo "🔗 URL: $ARTICLE_URL"
