@@ -142,23 +142,42 @@ jobs:
               }
             }' > /tmp/payload.json
           
+          # Debug: show payload
+          echo "=== Payload Preview ==="
+          cat /tmp/payload.json | head -c 1000
+          echo ""
+          echo "========================"
+          
           # Send to blog API
-          echo "Publishing to blog..."
-          RESULT=$(curl -s -X POST "${INK_AND_CODE_URL}/api/article/create-from-commit" \
+          echo "Publishing to ${INK_AND_CODE_URL}/api/article/create-from-commit ..."
+          RESULT=$(curl -s -w "\n%{http_code}" -X POST "${INK_AND_CODE_URL}/api/article/create-from-commit" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $INK_AND_CODE_TOKEN" \
             -d @/tmp/payload.json)
           
-          echo "API Response: $RESULT"
+          # Extract HTTP status code (last line)
+          HTTP_CODE=$(echo "$RESULT" | tail -n1)
+          BODY=$(echo "$RESULT" | sed '$d')
           
-          CODE=$(echo "$RESULT" | jq -r '.code // 500')
-          if [ "$CODE" != "201" ]; then
-            echo "Failed to publish"
-            echo "Error: $(echo "$RESULT" | jq -r '.message // "Unknown error"')"
+          echo "HTTP Status: $HTTP_CODE"
+          echo "API Response: $BODY"
+          
+          # Check if response is valid JSON
+          if ! echo "$BODY" | jq -e . > /dev/null 2>&1; then
+            echo "Error: API returned invalid JSON"
+            echo "Raw response:"
+            echo "$BODY"
             exit 1
           fi
           
-          ARTICLE_URL=$(echo "$RESULT" | jq -r '.data.url // "N/A"')
+          CODE=$(echo "$BODY" | jq -r '.code // 500')
+          if [ "$CODE" != "201" ]; then
+            echo "Failed to publish"
+            echo "Error: $(echo "$BODY" | jq -r '.message // "Unknown error"')"
+            exit 1
+          fi
+          
+          ARTICLE_URL=$(echo "$BODY" | jq -r '.data.url // "N/A"')
           echo ""
           echo "=========================================="
           echo "Blog post created successfully!"
