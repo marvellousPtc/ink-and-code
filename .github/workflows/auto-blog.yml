@@ -1,3 +1,4 @@
+# Auto generate blog posts from commits
 name: Auto Blog from Commit
 
 on:
