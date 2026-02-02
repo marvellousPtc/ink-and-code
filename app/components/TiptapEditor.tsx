@@ -359,7 +359,7 @@ export default function TiptapEditor({
       )}
       
       {/* 悬浮工具栏 */}
-      <div className="sticky top-0 z-20 flex flex-wrap items-center gap-1 p-2 bg-background/80 backdrop-blur-xl border border-card-border/60 shadow-sm transition-all duration-300 opacity-40 hover:opacity-100 group-focus-within/editor:opacity-100 group-focus-within/editor:shadow-md">
+      <div className="sticky top-0 z-20 flex flex-wrap items-center gap-1 p-2 bg-background border-b border-card-border/60 shadow-sm transition-all duration-300 opacity-60 hover:opacity-100 group-focus-within/editor:opacity-100 group-focus-within/editor:shadow-md">
         {/* 文本格式 */}
         <div className="flex items-center gap-0.5 px-1">
           <ToolbarToggle

@@ -95,7 +95,7 @@ export default async function UserArticlePage({ params }: Props) {
           </h1>
 
           {/* 元信息 */}
-          <div className="flex flex-wrap items-center gap-4 text-sm text-muted">
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-sm text-muted">
             {/* 作者 */}
             <Link
               href={`/u/${username}`}
@@ -115,7 +115,7 @@ export default async function UserArticlePage({ params }: Props) {
               <span>{user.name || username}</span>
             </Link>
 
-            <span className="text-card-border">·</span>
+            <span className="text-card-border hidden sm:inline">·</span>
 
             {/* 日期 */}
             <div className="flex items-center gap-1.5">
@@ -128,25 +128,22 @@ export default async function UserArticlePage({ params }: Props) {
                 })}
               </span>
             </div>
-
-            {/* 标签 */}
-            {post.tags.length > 0 && (
-              <>
-                <span className="text-card-border">·</span>
-                <div className="flex items-center gap-2">
-                  <Tag className="w-4 h-4" />
-                  {post.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="px-2 py-0.5 rounded-full bg-card-border/50 text-xs"
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              </>
-            )}
           </div>
+
+          {/* 标签 - 单独一行 */}
+          {post.tags.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 mt-4">
+              <Tag className="w-4 h-4 text-muted shrink-0" />
+              {post.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="px-2 py-0.5 rounded-full bg-card-border/50 text-xs text-muted whitespace-nowrap"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
 
           {/* 摘要 */}
           {post.excerpt && (

@@ -61,8 +61,13 @@ export default function AdminPage() {
   const isAuthenticated = !!session?.user;
   const isCheckingAuth = status === 'loading';
 
-  // 侧边栏状态
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // 侧边栏状态（根据屏幕尺寸初始化）
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    // 服务端渲染时默认折叠
+    if (typeof window === 'undefined') return true;
+    // 客户端：桌面端默认展开，移动端默认折叠
+    return window.innerWidth < 768;
+  });
 
   // 选中状态
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -372,8 +377,20 @@ export default function AdminPage() {
 
   return (
     <div className="fixed inset-0 top-20 flex overflow-hidden bg-background">
+      {/* 移动端遮罩层 */}
+      {!sidebarCollapsed && (
+        <div 
+          className="md:hidden fixed inset-0 top-20 bg-black/50 z-40"
+          onClick={() => setSidebarCollapsed(true)}
+        />
+      )}
+
       {/* 左侧侧边栏 */}
-      <aside className={`border-r border-card-border bg-card/20 backdrop-blur-md flex flex-col shrink-0 shadow-[1px_0_10px_rgba(0,0,0,0.02)] transition-all duration-300 ${sidebarCollapsed ? 'w-0 overflow-hidden border-r-0' : 'w-72'}`}>
+      <aside className={`
+        border-r border-card-border bg-card/95 md:bg-card/20 backdrop-blur-md flex flex-col shrink-0 shadow-[1px_0_10px_rgba(0,0,0,0.02)] transition-all duration-300
+        fixed md:static top-20 md:top-auto bottom-0 md:bottom-auto left-0 z-50 md:z-auto h-auto md:h-full
+        ${sidebarCollapsed ? 'w-0 overflow-hidden border-r-0 -translate-x-full md:translate-x-0' : 'w-72 translate-x-0'}
+      `}>
         <div className="flex-1 overflow-hidden flex flex-col w-72">
           <div className="p-5 border-b border-card-border/40 bg-card/10 flex items-center justify-between">
             <h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted/50">
@@ -388,8 +405,20 @@ export default function AdminPage() {
             <DocTree
               selectedId={selectedId}
               selectedType={selectedType}
-              onSelect={handleSelect}
-              onAddArticle={handleAddArticle}
+              onSelect={(id, type) => {
+                handleSelect(id, type);
+                // 移动端选择文章后自动关闭侧边栏（文件夹不关闭）
+                if (type === 'article' && window.innerWidth < 768) {
+                  setSidebarCollapsed(true);
+                }
+              }}
+              onAddArticle={(categoryId) => {
+                handleAddArticle(categoryId);
+                // 移动端创建后自动关闭侧边栏
+                if (window.innerWidth < 768) {
+                  setSidebarCollapsed(true);
+                }
+              }}
               onDeleteArticle={handleDeleteArticle}
             />
           </div>
@@ -446,10 +475,10 @@ export default function AdminPage() {
         </div>
       </aside>
 
-      {/* 侧边栏切换按钮 */}
+      {/* 侧边栏切换按钮 - 桌面端 */}
       <button
         onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-        className="absolute left-0 top-1/2 -translate-y-1/2 z-30 flex items-center justify-center w-6 h-12 bg-card/80 backdrop-blur-sm border border-card-border/60 rounded-r-lg shadow-sm hover:bg-card transition-all"
+        className="hidden md:flex absolute left-0 top-1/2 -translate-y-1/2 z-30 items-center justify-center w-6 h-12 bg-card/80 backdrop-blur-sm border border-card-border/60 rounded-r-lg shadow-sm hover:bg-card transition-all"
         style={{ left: sidebarCollapsed ? 0 : 'calc(18rem - 1px)' }}
         title={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
       >
@@ -460,128 +489,224 @@ export default function AdminPage() {
         )}
       </button>
 
+      {/* 移动端侧边栏切换按钮 - 固定在左下角 */}
+      <button
+        onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+        className="md:hidden fixed left-4 bottom-4 z-30 flex items-center justify-center w-12 h-12 bg-primary text-primary-foreground rounded-full shadow-lg shadow-primary/30"
+      >
+        {sidebarCollapsed ? (
+          <PanelLeft className="w-5 h-5" />
+        ) : (
+          <PanelLeftClose className="w-5 h-5" />
+        )}
+      </button>
+
       {/* 右侧主工作区 */}
       <main className="flex-1 flex flex-col overflow-hidden bg-[radial-gradient(circle_at_50%_50%,rgba(var(--primary),0.02),transparent)]">
         {showEditor ? (
           <>
             {/* 增强型顶部工具栏 */}
-            <div className="h-16 border-b border-card-border/40 flex items-center justify-between px-8 shrink-0 bg-background/60 backdrop-blur-xl shadow-[0_1px_3px_rgba(0,0,0,0.02)] z-10">
-              <div className="flex items-center gap-5">
-                {/* 分类选择 */}
-                {/* <div className="relative group">
-                  <div className="absolute inset-0 bg-primary/5 rounded-xl blur-lg opacity-0 group-hover:opacity-100 transition-opacity" />
-                  <select
-                    value={form.categoryId}
-                    onChange={(e) => handleFormChange('categoryId', e.target.value)}
-                    className="relative pl-4 pr-10 py-2 bg-background/40 border border-card-border/80 rounded-xl text-xs font-bold uppercase tracking-wider focus:outline-none focus:ring-4 focus:ring-primary/5 focus:border-primary/40 appearance-none cursor-pointer transition-all hover:bg-background/80 shadow-sm"
+            <div className="border-b border-card-border/40 shrink-0 bg-background/60 backdrop-blur-xl shadow-[0_1px_3px_rgba(0,0,0,0.02)] z-10">
+              {/* 桌面端布局 */}
+              <div className="hidden md:flex h-16 items-center justify-between px-8">
+                <div className="flex items-center gap-5">
+                  {/* 发布状态 */}
+                  <div
+                    className={`flex items-center gap-2.5 px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-[0.15em] transition-all shadow-sm border ${form.published
+                        ? 'bg-green-500/5 text-green-500 border-green-500/20 shadow-green-500/5'
+                        : 'bg-yellow-500/5 text-yellow-500 border-yellow-500/20 shadow-yellow-500/5'
+                      }`}
                   >
-                    <option value="">📁 未分类文档</option>
-                    {categories?.map((cat: Category) => (
-                      <option key={cat.id} value={cat.id}>
-                        {cat.icon || '📁'} {cat.name}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted pointer-events-none group-hover:text-foreground transition-colors" />
-                </div> */}
+                    <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${form.published ? 'bg-green-500' : 'bg-yellow-500'}`} />
+                    <span>{form.published ? '已发布' : '草稿模式'}</span>
+                  </div>
 
-                {/* <span className="w-px h-5 bg-card-border/60" /> */}
-
-                {/* 发布状态 */}
-                <div
-                  className={`flex items-center gap-2.5 px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-[0.15em] transition-all shadow-sm border ${form.published
-                      ? 'bg-green-500/5 text-green-500 border-green-500/20 shadow-green-500/5'
-                      : 'bg-yellow-500/5 text-yellow-500 border-yellow-500/20 shadow-yellow-500/5'
-                    }`}
-                >
-                  <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${form.published ? 'bg-green-500' : 'bg-yellow-500'}`} />
-                  <span>{form.published ? '已发布' : '草稿模式'}</span>
+                  {/* 标签 */}
+                  <div className="flex items-center gap-2.5 bg-background/40 border border-card-border/60 rounded-xl px-3 group focus-within:border-primary/40 focus-within:ring-4 focus-within:ring-primary/5 transition-all shadow-sm">
+                    <Tag className="w-3.5 h-3.5 text-muted/40 group-focus-within:text-primary/60 transition-colors" />
+                    <input
+                      type="text"
+                      value={form.tags}
+                      onChange={(e) => handleFormChange('tags', e.target.value)}
+                      placeholder="标签 (使用逗号分隔)"
+                      className="py-2 bg-transparent border-none text-[11px] font-bold uppercase tracking-wider focus:outline-none w-48 placeholder:text-muted/20"
+                    />
+                  </div>
                 </div>
 
-                {/* 标签 */}
-                <div className="flex items-center gap-2.5 bg-background/40 border border-card-border/60 rounded-xl px-3 group focus-within:border-primary/40 focus-within:ring-4 focus-within:ring-primary/5 transition-all shadow-sm">
-                  <Tag className="w-3.5 h-3.5 text-muted/40 group-focus-within:text-primary/60 transition-colors" />
+                <div className="flex items-center gap-5">
+                  {/* 状态反馈 */}
+                  {message && (
+                    <span
+                      className={`text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-xl border animate-in fade-in slide-in-from-right-4 duration-500 ${message.type === 'success'
+                          ? 'bg-green-500/5 text-green-500 border-green-500/20'
+                          : 'bg-red-500/5 text-red-400 border-red-500/20'
+                        }`}
+                    >
+                      {message.text}
+                    </span>
+                  )}
+
+                  {/* 保存/发布操作组 */}
+                  <div className="flex items-center bg-background/40 border border-card-border/80 rounded-2xl p-1 gap-1 shadow-sm">
+                    <button
+                      data-save-btn
+                      onClick={handleSave}
+                      disabled={isSaving || !hasChanges}
+                      className={`px-5 py-2 rounded-xl text-[11px] font-bold uppercase tracking-wider transition-al cursor-pointer ${hasChanges
+                          ? 'bg-primary/10 text-primary hover:bg-primary/20 shadow-sm'
+                          : 'text-muted/30 cursor-default opacity-50'
+                        }`}
+                    >
+                      {isSaving ? '正在同步' : hasChanges ? '保存修改' : '已同步'}
+                    </button>
+                    <button
+                      onClick={async () => {
+                        const newPublished = !form.published;
+                        setForm((prev) => ({ ...prev, published: newPublished }));
+                        const postData = {
+                          id: selectedId,
+                          title: form.title,
+                          slug: form.slug || generateSlug(form.title),
+                          content: form.content,
+                          excerpt: form.excerpt,
+                          tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
+                          published: newPublished,
+                          categoryId: form.categoryId || null,
+                        };
+                        try {
+                          await updateArticle(postData);
+                          mutate((key) => typeof key === 'string' && key.startsWith('/api/article'));
+                          showMessage('success', newPublished ? '文章已发布' : '文章已存为草稿');
+                          setHasChanges(false);
+                        } catch (error) {
+                          console.error('Failed to publish:', error);
+                          if (isUnauthorizedError(error)) {
+                            handleUnauthorized();
+                            return;
+                          }
+                          showMessage('error', '操作失败');
+                        }
+                      }}
+                      disabled={isSaving || !form.title.trim()}
+                      className={`px-6 py-2 rounded-xl text-[11px] font-extrabold uppercase tracking-[0.2em] transition-all shadow-md active:scale-95 cursor-pointer ${form.published
+                          ? 'bg-red-500 text-white hover:bg-red-600 shadow-red-500/20'
+                          : 'bg-primary text-primary-foreground hover:shadow-lg hover:shadow-primary/30'
+                        }`}
+                    >
+                      {form.published ? '撤回发布' : '发布文档'}
+                    </button>
+                  </div>
+
+                  <button
+                    onClick={() => handleDeleteArticle(selectedId)}
+                    className="w-11 h-11 flex items-center justify-center text-muted hover:text-red-400 hover:bg-red-500/10 rounded-2xl transition-all border border-card-border/40 bg-background/40 shadow-sm"
+                    title="彻底删除此文档"
+                  >
+                    <Trash2 className="w-4.5 h-4.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* 移动端布局 */}
+              <div className="md:hidden px-4 py-3 space-y-3">
+                {/* 第一行：状态 + 操作按钮 */}
+                <div className="flex items-center justify-between gap-3">
+                  {/* 发布状态 */}
+                  <div
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-all shadow-sm border shrink-0 ${form.published
+                        ? 'bg-green-500/5 text-green-500 border-green-500/20'
+                        : 'bg-yellow-500/5 text-yellow-500 border-yellow-500/20'
+                      }`}
+                  >
+                    <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${form.published ? 'bg-green-500' : 'bg-yellow-500'}`} />
+                    <span>{form.published ? '已发布' : '草稿'}</span>
+                  </div>
+
+                  {/* 操作按钮 */}
+                  <div className="flex items-center gap-2">
+                    {/* 状态反馈 */}
+                    {message && (
+                      <span
+                        className={`text-[10px] font-bold px-2 py-1 rounded-lg ${message.type === 'success'
+                            ? 'bg-green-500/10 text-green-500'
+                            : 'bg-red-500/10 text-red-400'
+                          }`}
+                      >
+                        {message.text}
+                      </span>
+                    )}
+                    
+                    <button
+                      data-save-btn
+                      onClick={handleSave}
+                      disabled={isSaving || !hasChanges}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${hasChanges
+                          ? 'bg-primary/10 text-primary'
+                          : 'text-muted/30 opacity-50'
+                        }`}
+                    >
+                      {isSaving ? '同步中' : hasChanges ? '保存' : '已同步'}
+                    </button>
+                    
+                    <button
+                      onClick={async () => {
+                        const newPublished = !form.published;
+                        setForm((prev) => ({ ...prev, published: newPublished }));
+                        const postData = {
+                          id: selectedId,
+                          title: form.title,
+                          slug: form.slug || generateSlug(form.title),
+                          content: form.content,
+                          excerpt: form.excerpt,
+                          tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
+                          published: newPublished,
+                          categoryId: form.categoryId || null,
+                        };
+                        try {
+                          await updateArticle(postData);
+                          mutate((key) => typeof key === 'string' && key.startsWith('/api/article'));
+                          showMessage('success', newPublished ? '已发布' : '已存为草稿');
+                          setHasChanges(false);
+                        } catch (error) {
+                          console.error('Failed to publish:', error);
+                          if (isUnauthorizedError(error)) {
+                            handleUnauthorized();
+                            return;
+                          }
+                          showMessage('error', '操作失败');
+                        }
+                      }}
+                      disabled={isSaving || !form.title.trim()}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${form.published
+                          ? 'bg-red-500 text-white'
+                          : 'bg-primary text-primary-foreground'
+                        }`}
+                    >
+                      {form.published ? '撤回' : '发布'}
+                    </button>
+
+                    <button
+                      onClick={() => handleDeleteArticle(selectedId)}
+                      className="w-8 h-8 flex items-center justify-center text-muted hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
+                      title="删除"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* 第二行：标签输入 */}
+                <div className="flex items-center gap-2 bg-background/40 border border-card-border/60 rounded-lg px-3">
+                  <Tag className="w-3.5 h-3.5 text-muted/40 shrink-0" />
                   <input
                     type="text"
                     value={form.tags}
                     onChange={(e) => handleFormChange('tags', e.target.value)}
-                    placeholder="标签 (使用逗号分隔)"
-                    className="py-2 bg-transparent border-none text-[11px] font-bold uppercase tracking-wider focus:outline-none w-48 placeholder:text-muted/20"
+                    placeholder="标签 (逗号分隔)"
+                    className="flex-1 py-2 bg-transparent border-none text-xs focus:outline-none placeholder:text-muted/30"
                   />
                 </div>
-              </div>
-
-              <div className="flex items-center gap-5">
-                {/* 状态反馈 */}
-                {message && (
-                  <span
-                    className={`text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-xl border animate-in fade-in slide-in-from-right-4 duration-500 ${message.type === 'success'
-                        ? 'bg-green-500/5 text-green-500 border-green-500/20'
-                        : 'bg-red-500/5 text-red-400 border-red-500/20'
-                      }`}
-                  >
-                    {message.text}
-                  </span>
-                )}
-
-                {/* 保存/发布操作组 */}
-                <div className="flex items-center bg-background/40 border border-card-border/80 rounded-2xl p-1 gap-1 shadow-sm">
-                  <button
-                    data-save-btn
-                    onClick={handleSave}
-                    disabled={isSaving || !hasChanges}
-                    className={`px-5 py-2 rounded-xl text-[11px] font-bold uppercase tracking-wider transition-al cursor-pointer ${hasChanges
-                        ? 'bg-primary/10 text-primary hover:bg-primary/20 shadow-sm'
-                        : 'text-muted/30 cursor-default opacity-50'
-                      }`}
-                  >
-                    {isSaving ? '正在同步' : hasChanges ? '保存修改' : '已同步'}
-                  </button>
-                  <button
-                    onClick={async () => {
-                      const newPublished = !form.published;
-                      setForm((prev) => ({ ...prev, published: newPublished }));
-                      const postData = {
-                        id: selectedId,
-                        title: form.title,
-                        slug: form.slug || generateSlug(form.title),
-                        content: form.content,
-                        excerpt: form.excerpt,
-                        tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
-                        published: newPublished,
-                        categoryId: form.categoryId || null,
-                      };
-                      try {
-                        await updateArticle(postData);
-                        mutate((key) => typeof key === 'string' && key.startsWith('/api/article'));
-                        showMessage('success', newPublished ? '文章已发布' : '文章已存为草稿');
-                        setHasChanges(false);
-                      } catch (error) {
-                        console.error('Failed to publish:', error);
-                        if (isUnauthorizedError(error)) {
-                          handleUnauthorized();
-                          return;
-                        }
-                        showMessage('error', '操作失败');
-                      }
-                    }}
-                    disabled={isSaving || !form.title.trim()}
-                    className={`px-6 py-2 rounded-xl text-[11px] font-extrabold uppercase tracking-[0.2em] transition-all shadow-md active:scale-95 cursor-pointer ${form.published
-                        ? 'bg-red-500 text-white hover:bg-red-600 shadow-red-500/20'
-                        : 'bg-primary text-primary-foreground hover:shadow-lg hover:shadow-primary/30'
-                      }`}
-                  >
-                    {form.published ? '撤回发布' : '发布文档'}
-                  </button>
-                </div>
-
-                <button
-                  onClick={() => handleDeleteArticle(selectedId)}
-                  className="w-11 h-11 flex items-center justify-center text-muted hover:text-red-400 hover:bg-red-500/10 rounded-2xl transition-all border border-card-border/40 bg-background/40 shadow-sm"
-                  title="彻底删除此文档"
-                >
-                  <Trash2 className="w-4.5 h-4.5" />
-                </button>
               </div>
             </div>
 
