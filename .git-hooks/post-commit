@@ -1,0 +1,61 @@
+#!/bin/bash
+
+# Post-commit hook: 检测 [blog] 标记，触发 Cursor 生成博客
+
+# 获取最新 commit 信息
+COMMIT_MSG=$(git log -1 --format="%s")
+COMMIT_HASH=$(git log -1 --format="%H")
+COMMIT_SHORT=$(git log -1 --format="%h")
+
+# 检查是否包含 [blog] 标记
+if [[ "$COMMIT_MSG" != *"[blog]"* ]]; then
+    exit 0
+fi
+
+echo ""
+echo "=========================================="
+echo "🚀 检测到 [blog] 标记，准备生成博客文章..."
+echo "=========================================="
+echo "Commit: $COMMIT_SHORT"
+echo "Message: $COMMIT_MSG"
+echo ""
+
+# 构建提示词
+PROMPT="请根据我刚才的 commit ($COMMIT_SHORT: $COMMIT_MSG) 生成一篇技术博客文章并发布到我的网站。
+
+请执行以下步骤：
+1. 运行 git diff HEAD~1 HEAD 查看代码改动
+2. 阅读相关文件，理解改动的上下文和目的
+3. 撰写一篇高质量的中文技术博客（800-1500字）
+4. 调用 API 发布文章
+
+发布 API：
+curl -X POST \"\${INK_AND_CODE_URL}/api/article/create-from-commit\" \\
+  -H \"Content-Type: application/json\" \\
+  -H \"Authorization: Bearer \${INK_AND_CODE_TOKEN}\" \\
+  -d '{\"title\": \"标题\", \"content\": \"Markdown内容\", \"tags\": [\"标签\"], \"published\": false}'
+"
+
+# 复制提示词到剪贴板（macOS）
+if command -v pbcopy &> /dev/null; then
+    echo "$PROMPT" | pbcopy
+    echo "✅ 提示词已复制到剪贴板"
+fi
+
+# 显示系统通知（macOS）
+if command -v osascript &> /dev/null; then
+    osascript -e "display notification \"Commit: $COMMIT_SHORT\" with title \"📝 Blog Post Ready\" subtitle \"提示词已复制，请在 Cursor 中粘贴执行\""
+fi
+
+# 尝试打开/激活 Cursor
+if command -v cursor &> /dev/null; then
+    echo "🔄 正在激活 Cursor..."
+    cursor .
+elif [[ -d "/Applications/Cursor.app" ]]; then
+    open -a "Cursor" .
+fi
+
+echo ""
+echo "📋 请在 Cursor 中粘贴提示词 (Cmd+V) 并执行"
+echo "=========================================="
+echo ""
