@@ -36,7 +36,7 @@ export default async function LoginPage() {
               >
                 <button
                   type="submit"
-                  className="w-full flex items-center justify-center gap-3 py-4 bg-[#24292e] text-white rounded-2xl text-[11px] font-extrabold uppercase tracking-[0.15em] hover:bg-[#2f363d] transition-all active:scale-[0.98] shadow-md"
+                  className="w-full flex items-center justify-center gap-3 py-4 bg-[#24292e] text-white rounded-2xl text-[11px] font-extrabold uppercase tracking-[0.15em] hover:bg-[#2f363d] transition-all active:scale-[0.98] shadow-md cursor-pointer"
                 >
                   <Github className="w-5 h-5" />
                   <span>使用 GitHub 登录</span>
@@ -52,7 +52,7 @@ export default async function LoginPage() {
               >
                 <button
                   type="submit"
-                  className="w-full flex items-center justify-center gap-3 py-4 bg-white text-gray-700 border border-gray-200 rounded-2xl text-[11px] font-extrabold uppercase tracking-[0.15em] hover:bg-gray-50 transition-all active:scale-[0.98] shadow-md"
+                  className="w-full flex items-center justify-center gap-3 py-4 bg-white text-gray-700 border border-gray-200 rounded-2xl text-[11px] font-extrabold uppercase tracking-[0.15em] hover:bg-gray-50 transition-all active:scale-[0.98] shadow-md cursor-pointer"
                 >
                   <svg className="w-5 h-5" viewBox="0 0 24 24">
                     <path

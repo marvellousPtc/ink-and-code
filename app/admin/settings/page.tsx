@@ -218,8 +218,28 @@ export default function SettingsPage() {
   const copyLink = async () => {
     const url = `${window.location.origin}/u/${profile?.username || profileForm.username}`;
     try {
-      await navigator.clipboard.writeText(url);
-      showMessage('success', '链接已复制到剪贴板');
+      // 优先使用 Clipboard API
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(url);
+        showMessage('success', '链接已复制到剪贴板');
+      } else {
+        // Fallback: 使用传统方法
+        const textArea = document.createElement('textarea');
+        textArea.value = url;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const success = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        if (success) {
+          showMessage('success', '链接已复制到剪贴板');
+        } else {
+          showMessage('error', '复制失败，请手动复制');
+        }
+      }
     } catch {
       showMessage('error', '复制失败，请手动复制');
     }
