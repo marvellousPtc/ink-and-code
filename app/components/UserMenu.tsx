@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { signOut } from 'next-auth/react'
 import Link from 'next/link'
-import { LogOut, Settings, User, Shield } from 'lucide-react'
+import { LogOut, LayoutDashboard, User, Shield } from 'lucide-react'
 
 interface UserMenuProps {
   user: {
@@ -81,8 +81,8 @@ export default function UserMenu({ user }: UserMenuProps) {
               onClick={() => setIsOpen(false)}
               className="flex items-center gap-3 px-4 py-2.5 text-sm text-muted hover:text-foreground hover:bg-card-border/40 transition-colors cursor-pointer"
             >
-              <Settings className="w-4 h-4" />
-              <span>管理后台</span>
+              <LayoutDashboard className="w-4 h-4" />
+              <span>控制台</span>
             </Link>
             {canAccessAdmin && (
               <Link
