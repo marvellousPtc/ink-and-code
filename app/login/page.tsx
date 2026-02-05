@@ -44,7 +44,7 @@ export default async function LoginPage() {
               </form>
 
               {/* Google 登录 */}
-              <form
+              {/* <form
                 action={async () => {
                   "use server"
                   await signIn("google", { redirectTo: "/admin" })
@@ -74,7 +74,7 @@ export default async function LoginPage() {
                   </svg>
                   <span>使用 Google 登录</span>
                 </button>
-              </form>
+              </form> */}
             </div>
 
             <p className="mt-8 text-center text-[10px] text-muted/40 uppercase tracking-widest">
