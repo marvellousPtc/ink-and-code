@@ -5,7 +5,7 @@
  * :copyright: (c) 2026, Tungee
  * :date created: 2026-01-30 14:12:35
  * :last editor: PTC
- * :date last edited: 2026-01-30 21:06:49
+ * :date last edited: 2026-02-05 10:42:37
  */
 'use client';
 
@@ -36,6 +36,7 @@ import {
   Redo,
   Loader2,
   Upload,
+  X,
 } from 'lucide-react';
 import { Toggle } from '@/components/ui/toggle';
 import {
@@ -43,6 +44,105 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+
+// URL 输入弹窗组件
+interface UrlDialogProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: (url: string) => void;
+  title: string;
+  placeholder?: string;
+  initialValue?: string;
+}
+
+function UrlDialog({ isOpen, onClose, onConfirm, title, placeholder = '请输入 URL', initialValue = '' }: UrlDialogProps) {
+  const [url, setUrl] = useState(initialValue);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setUrl(initialValue);
+  }, [initialValue]);
+
+  useEffect(() => {
+    if (isOpen && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isOpen]);
+
+  const handleConfirm = () => {
+    onConfirm(url);
+    setUrl('');
+    onClose();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleConfirm();
+    } else if (e.key === 'Escape') {
+      onClose();
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      {/* 背景遮罩 */}
+      <div 
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200"
+        onClick={onClose}
+      />
+      
+      {/* 弹窗内容 */}
+      <div className="relative z-10 w-full max-w-md mx-4 bg-background border border-border rounded-xl shadow-2xl animate-in zoom-in-95 fade-in duration-200">
+        {/* 头部 */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <h3 className="text-lg font-semibold text-foreground">{title}</h3>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        
+        {/* 输入区域 */}
+        <div className="px-5 py-4">
+          <input
+            ref={inputRef}
+            type="url"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={placeholder}
+            className="w-full px-4 py-3 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all placeholder:text-muted-foreground"
+          />
+          <p className="mt-2 text-xs text-muted-foreground">
+            提示：输入完整 URL（如 https://example.com）
+          </p>
+        </div>
+        
+        {/* 底部按钮 */}
+        <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-border rounded-b-xl">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground bg-background border border-border rounded-lg transition-colors cursor-pointer"
+          >
+            取消
+          </button>
+          <button
+            onClick={handleConfirm}
+            className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-lg hover:bg-primary/90 transition-colors cursor-pointer"
+          >
+            确认
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const lowlight = createLowlight(common);
 
@@ -96,6 +196,11 @@ export default function TiptapEditor({
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // 弹窗状态
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [imageUrlDialogOpen, setImageUrlDialogOpen] = useState(false);
+  const [currentLinkUrl, setCurrentLinkUrl] = useState('');
 
   const parseContent = (str: string) => {
     if (!str || str === '') return undefined;
@@ -288,16 +393,43 @@ export default function TiptapEditor({
     };
   }, [editor, uploadImage]);
 
-  const setLink = useCallback(() => {
+  // 格式化 URL，确保包含协议
+  const formatUrl = (url: string): string => {
+    if (!url) return url;
+    url = url.trim();
+    // 如果已经有协议，直接返回
+    if (/^https?:\/\//i.test(url)) {
+      return url;
+    }
+    // 如果是相对路径（以 / 开头），直接返回
+    if (url.startsWith('/')) {
+      return url;
+    }
+    // 如果是邮箱链接
+    if (url.includes('@') && !url.includes('/')) {
+      return `mailto:${url}`;
+    }
+    // 默认添加 https://
+    return `https://${url}`;
+  };
+
+  // 打开链接弹窗
+  const openLinkDialog = useCallback(() => {
     if (!editor) return;
-    const previousUrl = editor.getAttributes('link').href;
-    const url = window.prompt('输入链接 URL:', previousUrl);
-    if (url === null) return;
+    const previousUrl = editor.getAttributes('link').href || '';
+    setCurrentLinkUrl(previousUrl);
+    setLinkDialogOpen(true);
+  }, [editor]);
+
+  // 处理链接确认
+  const handleLinkConfirm = useCallback((url: string) => {
+    if (!editor) return;
     if (url === '') {
       editor.chain().focus().extendMarkRange('link').unsetLink().run();
       return;
     }
-    editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+    const formattedUrl = formatUrl(url);
+    editor.chain().focus().extendMarkRange('link').setLink({ href: formattedUrl }).run();
   }, [editor]);
 
   // 打开文件选择对话框
@@ -305,13 +437,58 @@ export default function TiptapEditor({
     fileInputRef.current?.click();
   }, []);
 
-  // 通过 URL 添加图片
-  const addImageByUrl = useCallback(() => {
+  // 打开图片 URL 弹窗
+  const openImageUrlDialog = useCallback(() => {
     if (!editor) return;
-    const url = window.prompt('输入图片 URL:');
-    if (url) {
-      editor.chain().focus().setImage({ src: url }).run();
+    setImageUrlDialogOpen(true);
+  }, [editor]);
+
+  // 处理图片 URL 确认
+  const handleImageUrlConfirm = useCallback((url: string) => {
+    if (!editor || !url) return;
+    const formattedUrl = formatUrl(url);
+    editor.chain().focus().setImage({ src: formattedUrl }).run();
+  }, [editor]);
+
+  // 处理行内代码切换
+  const handleToggleCode = useCallback(() => {
+    if (!editor) return;
+    
+    const { from, to } = editor.state.selection;
+    
+    // 如果没有选中文本，先选中当前单词
+    if (from === to) {
+      // 尝试选中当前单词
+      const { $from } = editor.state.selection;
+      const start = $from.start();
+      const text = $from.parent.textContent;
+      const posInNode = $from.pos - start;
+      
+      // 找到单词边界
+      let wordStart = posInNode;
+      let wordEnd = posInNode;
+      
+      while (wordStart > 0 && !/\s/.test(text[wordStart - 1])) {
+        wordStart--;
+      }
+      while (wordEnd < text.length && !/\s/.test(text[wordEnd])) {
+        wordEnd++;
+      }
+      
+      if (wordStart !== wordEnd) {
+        // 选中单词并切换代码样式
+        editor
+          .chain()
+          .focus()
+          .setTextSelection({ from: start + wordStart, to: start + wordEnd })
+          .toggleCode()
+          .run();
+        return;
+      }
     }
+    
+    // 如果有选中文本，直接切换
+    editor.chain().focus().toggleCode().run();
   }, [editor]);
 
   if (!editor) {
@@ -385,7 +562,7 @@ export default function TiptapEditor({
           </ToolbarToggle>
           <ToolbarToggle
             pressed={editor.isActive('code')}
-            onPressedChange={() => editor.chain().focus().toggleCode().run()}
+            onPressedChange={handleToggleCode}
             tooltip="行内代码"
           >
             <Code className="size-3.5" />
@@ -459,7 +636,7 @@ export default function TiptapEditor({
         <div className="flex items-center gap-0.5 px-1">
           <ToolbarToggle
             pressed={editor.isActive('link')}
-            onPressedChange={setLink}
+            onPressedChange={openLinkDialog}
             tooltip="插入链接"
           >
             <LinkIcon className="size-3.5" />
@@ -475,7 +652,7 @@ export default function TiptapEditor({
               <Upload className="size-3.5" />
             )}
           </ToolbarToggle>
-          <ToolbarToggle onPressedChange={addImageByUrl} tooltip="图片 URL">
+          <ToolbarToggle onPressedChange={openImageUrlDialog} tooltip="图片 URL">
             <ImageIcon className="size-3.5" />
           </ToolbarToggle>
           <ToolbarToggle
@@ -521,6 +698,25 @@ export default function TiptapEditor({
           <EditorContent editor={editor} className="tiptap-editor-content" />
         </div>
       </div>
+
+      {/* 链接输入弹窗 */}
+      <UrlDialog
+        isOpen={linkDialogOpen}
+        onClose={() => setLinkDialogOpen(false)}
+        onConfirm={handleLinkConfirm}
+        title="插入链接"
+        placeholder="https://example.com"
+        initialValue={currentLinkUrl}
+      />
+
+      {/* 图片 URL 输入弹窗 */}
+      <UrlDialog
+        isOpen={imageUrlDialogOpen}
+        onClose={() => setImageUrlDialogOpen(false)}
+        onConfirm={handleImageUrlConfirm}
+        title="插入图片"
+        placeholder="https://example.com/image.jpg"
+      />
     </div>
   );
 }

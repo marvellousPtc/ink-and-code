@@ -9,7 +9,7 @@
  */
 'use client';
 
-import { useState, useRef, useEffect, createContext, useContext, useMemo } from 'react';
+import { useState, useRef, useEffect, createContext, useContext, useMemo, useCallback } from 'react';
 import {
   useCategoryList,
   useArticleList,
@@ -35,6 +35,11 @@ import {
   GripVertical,
 } from 'lucide-react';
 import { useConfirm } from '@/app/components/ConfirmDialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 // Context for tree state
 interface TreeContextValue {
@@ -76,6 +81,7 @@ function ArticleNode({ article, depth, index, categoryId }: ArticleNodeProps) {
   const ctx = useContext(TreeContext)!;
   const isSelected = ctx.selectedId === article.id && ctx.selectedType === 'article';
   const isDragging = ctx.draggedArticle?.id === article.id;
+  const isAnyDragging = ctx.draggedArticle !== null;
   const paddingLeft = 16 + depth * 16;
 
   // 检查是否是插入位置
@@ -86,8 +92,11 @@ function ArticleNode({ article, depth, index, categoryId }: ArticleNodeProps) {
     ctx.draggedArticle?.id !== article.id;
 
   const handleDragStart = (e: React.DragEvent) => {
+    // 设置拖拽数据
     e.dataTransfer.setData('text/plain', article.id);
     e.dataTransfer.effectAllowed = 'move';
+    
+    // 立即设置拖拽状态
     ctx.onDragStart(article);
   };
 
@@ -126,8 +135,10 @@ function ArticleNode({ article, depth, index, categoryId }: ArticleNodeProps) {
         onDragOver={handleDragOver}
         onDrop={handleDrop}
         style={{ paddingLeft }}
-        className={`group flex items-center gap-2.5 py-1.5 pr-2.5 mx-1 rounded-lg cursor-grab active:cursor-grabbing transition-all duration-200 ${
-          isDragging ? 'opacity-30 scale-95' : ''
+        className={`group flex items-center gap-2.5 py-1.5 pr-2.5 mx-1 rounded-lg transition-all duration-200 cursor-grab ${
+          isDragging ? 'opacity-30 scale-95 cursor-grabbing' : ''
+        } ${
+          isAnyDragging ? 'cursor-grabbing' : ''
         } ${
           isSelected
             ? 'bg-primary/10 text-primary font-medium shadow-[inset_0_0_0_1px_rgba(var(--primary),0.1)]'
@@ -135,7 +146,9 @@ function ArticleNode({ article, depth, index, categoryId }: ArticleNodeProps) {
         }`}
         onClick={() => ctx.onSelect(article.id, 'article')}
       >
-        <GripVertical className="w-3 h-3 opacity-30 group-hover:opacity-60 shrink-0" />
+        <div className="p-0.5 -m-0.5 rounded hover:bg-card-border/50 transition-colors">
+          <GripVertical className="w-3 h-3 opacity-30 group-hover:opacity-60 shrink-0" />
+        </div>
         <FileText className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'scale-110' : 'opacity-40 group-hover:opacity-70'}`} />
         <span className="flex-1 text-[13px] truncate tracking-tight">{article.title || '无标题'}</span>
         {!article.published && (
@@ -194,7 +207,7 @@ function ArticleListTail({ categoryId, articlesLength, depth }: ArticleListTailP
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       style={{ paddingLeft }}
-      className="h-6 mx-1"
+      className="h-4 mx-1 -mt-1"
     >
       {isInsertHere && (
         <div className="h-0.5 mx-2 bg-primary rounded-full animate-pulse" />
@@ -235,12 +248,13 @@ function CategoryNode({ node }: CategoryNodeProps) {
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     e.dataTransfer.dropEffect = 'move';
     ctx.onDragOverCategory(node.id);
   };
 
-  const handleDragLeave = () => {
-    // Don't clear if still over children
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.stopPropagation();
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -320,36 +334,54 @@ function CategoryNode({ node }: CategoryNodeProps) {
           )}
 
           <div className="flex items-center opacity-0 group-hover:opacity-100 transition-all gap-0.5">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                ctx.onAddArticle(node.id);
-              }}
-              className="p-1 hover:bg-primary/10 hover:text-primary rounded-md transition-colors cursor-pointer"
-              title="新建文章"
-            >
-              <FilePlus className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                ctx.onAddCategory(node.id);
-              }}
-              className="p-1 hover:bg-primary/10 hover:text-primary rounded-md transition-colors cursor-pointer"
-              title="新建子分类"
-            >
-              <FolderPlus className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                ctx.onDeleteCategory(node.id);
-              }}
-              className="p-1 hover:bg-red-500/10 hover:text-red-400 rounded-md transition-colors cursor-pointer"
-              title="删除文件夹"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    ctx.onAddArticle(node.id);
+                  }}
+                  className="p-1 hover:bg-primary/10 hover:text-primary rounded-md transition-colors cursor-pointer"
+                >
+                  <FilePlus className="w-3.5 h-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" sideOffset={5}>
+                新建文章
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    ctx.onAddCategory(node.id);
+                  }}
+                  className="p-1 hover:bg-primary/10 hover:text-primary rounded-md transition-colors cursor-pointer"
+                >
+                  <FolderPlus className="w-3.5 h-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" sideOffset={5}>
+                新建文件夹
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    ctx.onDeleteCategory(node.id);
+                  }}
+                  className="p-1 hover:bg-red-500/10 hover:text-red-400 rounded-md transition-colors cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" sideOffset={5}>
+                删除文件夹
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
       </div>
@@ -545,83 +577,100 @@ export default function DocTree({
   };
 
   // 拖拽处理
-  const handleDragStart = (article: ArticleListItem) => {
+  const handleDragStart = useCallback((article: ArticleListItem) => {
     setDraggedArticle(article);
-  };
+  }, []);
 
-  const handleDragEnd = () => {
+  const handleDragEnd = useCallback(() => {
     setDraggedArticle(null);
     setDropTargetInfo(null);
-  };
+  }, []);
 
-  const handleDragOverCategory = (categoryId: string | null) => {
+  const handleDragOverCategory = useCallback((categoryId: string | null) => {
     setDropTargetInfo({ categoryId, insertIndex: -1 });
-  };
+  }, []);
 
-  const handleDragOverArticle = (categoryId: string | null, insertIndex: number) => {
+  const handleDragOverArticle = useCallback((categoryId: string | null, insertIndex: number) => {
     setDropTargetInfo({ categoryId, insertIndex });
-  };
+  }, []);
 
-  const handleDrop = async () => {
+  const handleDrop = useCallback(() => {
     if (!draggedArticle || !dropTargetInfo) {
       handleDragEnd();
       return;
     }
 
     const targetCategoryId = dropTargetInfo.categoryId === 'uncategorized' ? null : dropTargetInfo.categoryId;
-    const targetArticles = articlesByCategory[dropTargetInfo.categoryId || 'uncategorized'] || [];
+    const sourceCategoryKey = draggedArticle.categoryId || 'uncategorized';
+    const targetCategoryKey = dropTargetInfo.categoryId || 'uncategorized';
+    const targetArticles = articlesByCategory[targetCategoryKey] || [];
     
     // 如果是移动到分类（insertIndex === -1），放到末尾
     let insertIndex = dropTargetInfo.insertIndex === -1 ? targetArticles.length : dropTargetInfo.insertIndex;
 
     // 如果是同分类内移动，需要调整 index
-    const isSameCategory = (draggedArticle.categoryId || null) === targetCategoryId;
+    const isSameCategory = sourceCategoryKey === targetCategoryKey;
     const currentIndex = targetArticles.findIndex((a) => a.id === draggedArticle.id);
     
     if (isSameCategory && currentIndex !== -1) {
-      // 如果目标位置和当前位置一样或相邻，不需要移动
-      if (insertIndex === currentIndex || insertIndex === currentIndex + 1) {
-        handleDragEnd();
-        return;
-      }
       // 如果向后移动，需要减 1（因为删除当前项后，后面的索引会前移）
       if (insertIndex > currentIndex) {
         insertIndex--;
       }
+      // 只有当最终位置和当前位置完全相同时才跳过
+      if (insertIndex === currentIndex) {
+        handleDragEnd();
+        return;
+      }
     }
 
-    try {
-      // 构建新的排序列表
-      const newArticles = targetArticles.filter((a) => a.id !== draggedArticle.id);
-      newArticles.splice(insertIndex, 0, draggedArticle);
+    // 构建新的排序列表
+    const newTargetArticles = targetArticles.filter((a) => a.id !== draggedArticle.id);
+    const updatedDraggedArticle = { ...draggedArticle, categoryId: targetCategoryId, sortOrder: insertIndex };
+    newTargetArticles.splice(insertIndex, 0, updatedDraggedArticle);
 
-      // 生成重排序数据
-      const reorderItems = newArticles.map((article, idx) => ({
-        id: article.id,
-        sortOrder: idx,
-        categoryId: targetCategoryId,
-      }));
+    // 生成重排序数据
+    const reorderItems = newTargetArticles.map((article, idx) => ({
+      id: article.id,
+      sortOrder: idx,
+      categoryId: targetCategoryId,
+    }));
 
-      // 如果是跨分类移动，被拖动的文章需要更新 categoryId
-      if (!isSameCategory) {
-        const draggedItem = reorderItems.find((item) => item.id === draggedArticle.id);
-        if (draggedItem) {
-          draggedItem.categoryId = targetCategoryId;
+    // 乐观更新：先更新本地状态
+    const optimisticData = {
+      ...articlesData,
+      list: articles.map((article) => {
+        if (article.id === draggedArticle.id) {
+          // 被拖动的文章：更新 categoryId 和 sortOrder
+          return { ...article, categoryId: targetCategoryId, sortOrder: insertIndex };
         }
-      }
+        // 目标分类中的其他文章：更新 sortOrder
+        const reorderItem = reorderItems.find((item) => item.id === article.id);
+        if (reorderItem) {
+          return { ...article, sortOrder: reorderItem.sortOrder, categoryId: reorderItem.categoryId };
+        }
+        return article;
+      }),
+    };
 
-      await reorderArticles({ items: reorderItems });
-      await refreshArticles();
-      
-      if (targetCategoryId) {
-        setExpandedIds((prev) => new Set([...prev, targetCategoryId]));
-      }
-    } catch (error) {
-      console.error('Failed to reorder articles:', error);
+    // 立即更新本地数据（不重新请求）
+    refreshArticles(optimisticData, { revalidate: false });
+
+    // 展开目标分类
+    if (targetCategoryId) {
+      setExpandedIds((prev) => new Set([...prev, targetCategoryId]));
     }
 
+    // 清除拖拽状态
     handleDragEnd();
-  };
+
+    // 异步发送 API 请求，不阻塞 UI
+    reorderArticles({ items: reorderItems }).catch((error) => {
+      console.error('Failed to reorder articles:', error);
+      // 如果失败，重新获取数据以恢复正确状态
+      refreshArticles();
+    });
+  }, [draggedArticle, dropTargetInfo, articlesByCategory, articles, articlesData, refreshArticles, reorderArticles, handleDragEnd]);
 
   const contextValue: TreeContextValue = {
     selectedId,
@@ -650,7 +699,7 @@ export default function DocTree({
 
   return (
     <TreeContext.Provider value={contextValue}>
-      <div className="h-full flex flex-col bg-card/10 backdrop-blur-md">
+      <div className={`h-full flex flex-col bg-card/10 backdrop-blur-md ${draggedArticle ? 'cursor-grabbing' : ''}`}>
         {/* 搜索栏 */}
         <div className="p-4 space-y-4 border-b border-card-border/40">
           <div className="relative group">
