@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
-import { Github, Globe, Linkedin, Twitter, Calendar, ArrowRight } from 'lucide-react';
+import { Github, Globe, Linkedin, Twitter, Calendar, ArrowRight, BookOpen, Sparkles } from 'lucide-react';
 import FollowButton from '@/app/components/FollowButton';
 import FollowStats from '@/app/components/FollowStats';
 
@@ -37,8 +37,8 @@ export default async function UserPublicPage({ params }: Props) {
       posts: {
         where: { 
           published: true,
-          bannedAt: null,        // 排除被禁用的文章
-          deletedByAdmin: false, // 排除被管理员删除的文章
+          bannedAt: null,
+          deletedByAdmin: false,
         },
         orderBy: { createdAt: 'desc' },
         select: {
@@ -53,8 +53,8 @@ export default async function UserPublicPage({ params }: Props) {
       },
       _count: {
         select: {
-          followers: true,  // 粉丝数
-          following: true,  // 关注数
+          followers: true,
+          following: true,
         },
       },
     },
@@ -95,187 +95,252 @@ export default async function UserPublicPage({ params }: Props) {
   const siteConfig = user.siteConfig;
   const followersCount = user._count.followers;
   const followingCount = user._count.following;
+  const socialLinks = [
+    { url: siteConfig?.githubUrl, icon: Github, label: 'GitHub' },
+    { url: siteConfig?.twitterUrl, icon: Twitter, label: 'Twitter' },
+    { url: siteConfig?.linkedinUrl, icon: Linkedin, label: 'LinkedIn' },
+    { url: siteConfig?.websiteUrl, icon: Globe, label: 'Website' },
+  ].filter(l => l.url);
+
+  const displayName = siteConfig?.siteName || user.name || username || '我的博客';
+  const tagline = siteConfig?.siteTagline || user.headline || '记录生活，分享技术';
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen relative">
       <div className="bg-glow" />
 
-      {/* Hero Section */}
-      <section className="relative pt-32 pb-16 px-4 sm:px-6 border-b border-card-border">
-        <div className="max-w-4xl mx-auto">
-          <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 sm:gap-8">
-            {/* 头像 */}
-            {user.image ? (
-              <img
-                src={user.image}
-                alt={user.name || username}
-                className="w-24 h-24 sm:w-32 sm:h-32 rounded-3xl ring-4 ring-card-border shadow-xl"
-              />
-            ) : (
-              <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-3xl bg-primary/10 flex items-center justify-center ring-4 ring-card-border">
-                <span className="text-4xl sm:text-5xl font-bold text-primary">
-                  {(user.name || username).charAt(0).toUpperCase()}
-                </span>
-              </div>
+      {/* ====== HERO ====== */}
+      <section className="relative min-h-[70vh] sm:min-h-[80vh] flex items-center justify-center overflow-hidden">
+        {/* 背景装饰光斑 */}
+        <div className="absolute inset-0 -z-10">
+          <div className="absolute top-1/3 left-1/4 w-[500px] h-[500px] bg-primary/8 rounded-full blur-[150px] animate-pulse" />
+          <div className="absolute bottom-1/4 right-1/5 w-[400px] h-[400px] bg-purple-500/5 rounded-full blur-[120px]" />
+          <div className="absolute top-1/2 right-1/3 w-[300px] h-[300px] bg-blue-500/5 rounded-full blur-[100px]" />
+        </div>
+
+        {/* 装饰网格 */}
+        <div
+          className="absolute inset-0 -z-10 opacity-[0.03]"
+          style={{
+            backgroundImage: 'linear-gradient(var(--foreground) 1px, transparent 1px), linear-gradient(90deg, var(--foreground) 1px, transparent 1px)',
+            backgroundSize: '80px 80px',
+          }}
+        />
+
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 w-full py-32 sm:py-40">
+          <div className="flex flex-col items-center text-center">
+            {/* 头像 — 带光环 */}
+            <div className="relative mb-8 animate-fade-up">
+              <div className="absolute -inset-3 bg-primary/20 rounded-full blur-xl animate-pulse" />
+              {user.image ? (
+                <img
+                  src={user.image}
+                  alt={displayName}
+                  className="relative w-28 h-28 sm:w-36 sm:h-36 rounded-full ring-4 ring-background shadow-2xl shadow-primary/20 object-cover"
+                />
+              ) : (
+                <div className="relative w-28 h-28 sm:w-36 sm:h-36 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center ring-4 ring-background">
+                  <span className="text-5xl sm:text-6xl font-bold text-primary">
+                    {displayName.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+              )}
+
+              {/* 在线状态小点 */}
+              <div className="absolute bottom-1 right-1 w-5 h-5 bg-emerald-400 rounded-full ring-4 ring-background" />
+            </div>
+
+            {/* 名称 */}
+            <h1 className="serif text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-foreground mb-4 animate-fade-up [animation-delay:100ms] opacity-0 [animation-fill-mode:forwards]">
+              {displayName}
+            </h1>
+
+            {/* 标语 */}
+            <p className="text-lg sm:text-xl text-muted max-w-xl leading-relaxed serif italic mb-6 animate-fade-up [animation-delay:200ms] opacity-0 [animation-fill-mode:forwards]">
+              &ldquo;{tagline}&rdquo;
+            </p>
+
+            {/* 简介 */}
+            {user.bio && (
+              <p className="text-muted/80 max-w-lg leading-relaxed mb-8 animate-fade-up [animation-delay:300ms] opacity-0 [animation-fill-mode:forwards]">
+                {user.bio}
+              </p>
             )}
 
-            <div className="flex-1 text-center sm:text-left">
-              <h1 className="text-3xl sm:text-4xl font-bold text-foreground mb-2">
-                {siteConfig?.siteName || user.name || username || '我的博客'}
-              </h1>
-              <p className="text-lg text-muted mb-4 serif italic">
-                {siteConfig?.siteTagline || user.headline || '记录生活，分享技术'}
-              </p>
-              <p className="text-muted leading-relaxed mb-6 max-w-2xl">
-                {user.bio || '这个人很懒，还没有写简介...'}
-              </p>
-
-              {/* 关注统计和按钮 */}
-              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-4 mb-6">
-                <FollowStats
-                  userId={user.id}
-                  initialFollowing={followingCount}
-                  initialFollowers={followersCount}
-                />
-                <FollowButton userId={user.id} />
-              </div>
-
-              {/* 社交链接 */}
-              <div className="flex items-center justify-center sm:justify-start gap-3">
-                {siteConfig?.githubUrl && (
-                  <a
-                    href={siteConfig.githubUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-10 h-10 rounded-xl bg-card border border-card-border flex items-center justify-center text-muted hover:text-foreground hover:border-card-border/80 transition-colors"
-                  >
-                    <Github className="w-5 h-5" />
-                  </a>
-                )}
-                {siteConfig?.twitterUrl && (
-                  <a
-                    href={siteConfig.twitterUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-10 h-10 rounded-xl bg-card border border-card-border flex items-center justify-center text-muted hover:text-foreground hover:border-card-border/80 transition-colors"
-                  >
-                    <Twitter className="w-5 h-5" />
-                  </a>
-                )}
-                {siteConfig?.linkedinUrl && (
-                  <a
-                    href={siteConfig.linkedinUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-10 h-10 rounded-xl bg-card border border-card-border flex items-center justify-center text-muted hover:text-foreground hover:border-card-border/80 transition-colors"
-                  >
-                    <Linkedin className="w-5 h-5" />
-                  </a>
-                )}
-                {siteConfig?.websiteUrl && (
-                  <a
-                    href={siteConfig.websiteUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-10 h-10 rounded-xl bg-card border border-card-border flex items-center justify-center text-muted hover:text-foreground hover:border-card-border/80 transition-colors"
-                  >
-                    <Globe className="w-5 h-5" />
-                  </a>
-                )}
-              </div>
+            {/* 关注统计 + 关注按钮 */}
+            <div className="flex flex-wrap items-center justify-center gap-4 mb-8 animate-fade-up [animation-delay:400ms] opacity-0 [animation-fill-mode:forwards]">
+              <FollowStats
+                userId={user.id}
+                initialFollowing={followingCount}
+                initialFollowers={followersCount}
+              />
+              <FollowButton userId={user.id} />
             </div>
+
+            {/* 社交链接 */}
+            {socialLinks.length > 0 && (
+              <div className="flex items-center gap-2 animate-fade-up [animation-delay:500ms] opacity-0 [animation-fill-mode:forwards]">
+                {socialLinks.map(({ url, icon: Icon, label }) => (
+                  <a
+                    key={label}
+                    href={url!}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group relative w-11 h-11 rounded-xl bg-card/50 border border-card-border/60 backdrop-blur-sm flex items-center justify-center text-muted hover:text-primary hover:border-primary/30 hover:bg-primary/5 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/10"
+                    title={label}
+                  >
+                    <Icon className="w-[18px] h-[18px]" />
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 底部渐变分割 */}
+        <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-background to-transparent" />
+      </section>
+
+      {/* ====== 统计数据条 ====== */}
+      <section className="relative -mt-16 z-10 px-4 sm:px-6 mb-16">
+        <div className="max-w-3xl mx-auto">
+          <div className="flex items-center justify-center gap-6 sm:gap-10 p-6 rounded-2xl bg-card/60 border border-card-border/60 backdrop-blur-xl shadow-xl shadow-black/5">
+            <div className="text-center">
+              <div className="text-2xl sm:text-3xl font-bold text-foreground tabular-nums">{user.posts.length}</div>
+              <div className="text-[10px] sm:text-xs text-muted uppercase tracking-widest mt-1 font-medium">文章</div>
+            </div>
+            <div className="w-px h-10 bg-card-border/60" />
+            <div className="text-center">
+              <div className="text-2xl sm:text-3xl font-bold text-foreground tabular-nums">{followersCount}</div>
+              <div className="text-[10px] sm:text-xs text-muted uppercase tracking-widest mt-1 font-medium">粉丝</div>
+            </div>
+            <div className="w-px h-10 bg-card-border/60" />
+            <div className="text-center">
+              <div className="text-2xl sm:text-3xl font-bold text-foreground tabular-nums">{followingCount}</div>
+              <div className="text-[10px] sm:text-xs text-muted uppercase tracking-widest mt-1 font-medium">关注</div>
+            </div>
+            {user.createdAt && (
+              <>
+                <div className="w-px h-10 bg-card-border/60 hidden sm:block" />
+                <div className="text-center hidden sm:block">
+                  <div className="text-2xl sm:text-3xl font-bold text-foreground tabular-nums">
+                    {new Date(user.createdAt).getFullYear()}
+                  </div>
+                  <div className="text-[10px] sm:text-xs text-muted uppercase tracking-widest mt-1 font-medium">加入</div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </section>
 
-      {/* Articles Section */}
-      <section className="py-16 px-4 sm:px-6">
+      {/* ====== 文章列表 ====== */}
+      <section className="px-4 sm:px-6 pb-24">
         <div className="max-w-4xl mx-auto">
-          <div className="flex items-center justify-between mb-10">
-            <div className="flex items-center gap-4">
-              <h2 className="text-2xl font-bold text-foreground">文章</h2>
-              <span className="px-3 py-1 rounded-full bg-primary/10 text-primary text-sm font-medium">
-                {user.posts.length}
-              </span>
+          {/* 标题 */}
+          <div className="flex items-center gap-3 mb-10">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+              <Sparkles className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-bold text-foreground leading-none">最新文章</h2>
+              <p className="text-xs text-muted mt-1">共 {user.posts.length} 篇</p>
             </div>
           </div>
 
           {user.posts.length > 0 ? (
-            <div className="space-y-6">
-              {user.posts.map((post) => (
+            <div className="space-y-5">
+              {user.posts.map((post, i) => (
                 <Link
                   key={post.id}
                   href={`/u/${username}/${post.slug}`}
-                  className="group block p-6 rounded-2xl border border-card-border bg-card/30 hover:bg-card/60 hover:border-card-border/80 transition-all duration-300"
+                  className="group block relative rounded-2xl border border-card-border/60 bg-card/30 hover:bg-card/60 hover:border-primary/20 transition-all duration-500 overflow-hidden hover:shadow-xl hover:shadow-primary/5 hover:-translate-y-0.5"
+                  style={{ animationDelay: `${i * 80}ms` }}
                 >
-                  <div className="flex flex-col sm:flex-row gap-4">
+                  {/* 悬停渐变 */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-primary/[0.03] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+
+                  <div className="relative flex flex-col sm:flex-row gap-5 p-5 sm:p-6">
+                    {/* 封面图 */}
                     {post.coverImage && (
-                      <div className="sm:w-48 h-32 rounded-xl overflow-hidden bg-card-border/20 shrink-0">
+                      <div className="sm:w-52 h-36 sm:h-auto rounded-xl overflow-hidden bg-card-border/20 shrink-0">
                         <img
                           src={post.coverImage}
                           alt={post.title}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
                         />
                       </div>
                     )}
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-xl font-bold text-foreground group-hover:text-primary transition-colors mb-2 line-clamp-2">
-                        {post.title}
-                      </h3>
-                      {post.excerpt && (
-                        <p className="text-muted line-clamp-2 mb-3">
-                          {post.excerpt}
-                        </p>
-                      )}
-                      <div className="flex items-center gap-4 text-sm text-muted">
-                        <div className="flex items-center gap-1.5">
-                          <Calendar className="w-4 h-4" />
-                          <span>
-                            {new Date(post.createdAt).toLocaleDateString('zh-CN', {
-                              year: 'numeric',
-                              month: 'short',
-                              day: 'numeric',
-                            })}
-                          </span>
-                        </div>
-                        {post.tags.length > 0 && (
-                          <div className="flex items-center gap-2">
-                            {post.tags.slice(0, 2).map((tag) => (
-                              <span
-                                key={tag}
-                                className="px-2 py-0.5 rounded-full bg-card-border/50 text-xs"
-                              >
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
+
+                    {/* 内容 */}
+                    <div className="flex-1 min-w-0 flex flex-col justify-between">
+                      <div>
+                        <h3 className="text-lg sm:text-xl font-bold text-foreground group-hover:text-primary transition-colors duration-300 mb-2.5 line-clamp-2 leading-snug">
+                          {post.title}
+                        </h3>
+                        {post.excerpt && (
+                          <p className="text-sm text-muted/80 line-clamp-2 leading-relaxed mb-4">
+                            {post.excerpt}
+                          </p>
                         )}
                       </div>
-                    </div>
-                    <div className="flex items-center">
-                      <ArrowRight className="w-5 h-5 text-muted group-hover:text-primary group-hover:translate-x-1 transition-all" />
+
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3 text-xs text-muted">
+                          <div className="flex items-center gap-1.5">
+                            <Calendar className="w-3.5 h-3.5" />
+                            <span>
+                              {new Date(post.createdAt).toLocaleDateString('zh-CN', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric',
+                              })}
+                            </span>
+                          </div>
+                          {post.tags.length > 0 && (
+                            <div className="flex items-center gap-1.5">
+                              {post.tags.slice(0, 3).map((tag) => (
+                                <span
+                                  key={tag}
+                                  className="px-2 py-0.5 rounded-full bg-primary/8 text-primary/80 text-[10px] font-medium"
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5 text-xs text-muted group-hover:text-primary transition-colors">
+                          <span className="hidden sm:inline font-medium">阅读</span>
+                          <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform duration-300" />
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </Link>
               ))}
             </div>
           ) : (
-            <div className="text-center py-20">
-              <div className="w-20 h-20 mx-auto mb-6 rounded-3xl bg-card border border-card-border flex items-center justify-center">
-                <span className="text-3xl">✍️</span>
+            <div className="text-center py-24">
+              <div className="relative inline-block mb-8">
+                <div className="absolute -inset-4 bg-primary/10 rounded-full blur-2xl" />
+                <div className="relative w-24 h-24 rounded-3xl bg-card border border-card-border flex items-center justify-center">
+                  <BookOpen className="w-10 h-10 text-muted/40" />
+                </div>
               </div>
               <h3 className="text-xl font-bold text-foreground mb-2">暂无文章</h3>
-              <p className="text-muted">该用户还没有发布任何文章</p>
+              <p className="text-muted text-sm">该用户还没有发布任何文章</p>
             </div>
           )}
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="py-8 px-4 sm:px-6 border-t border-card-border">
+      {/* ====== FOOTER ====== */}
+      <footer className="py-10 px-4 sm:px-6 border-t border-card-border/40">
         <div className="max-w-4xl mx-auto text-center">
-          <Link href="/" className="text-muted hover:text-foreground transition-colors text-sm">
-            Powered by <span className="font-semibold">Ink&Code</span>
+          <Link href="/" className="inline-flex items-center gap-2 text-muted/60 hover:text-muted transition-colors text-xs tracking-wider uppercase font-medium">
+            Powered by <span className="serif text-sm font-bold text-foreground/60">Ink<span className="text-primary/60">&</span>Code</span>
           </Link>
         </div>
       </footer>

@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { signOut } from 'next-auth/react'
 import Link from 'next/link'
-import { LogOut, LayoutDashboard, User, Shield } from 'lucide-react'
+import { LogOut, LayoutDashboard, User, Shield, UserCircle } from 'lucide-react'
 
 interface UserMenuProps {
   user: {
@@ -17,6 +17,7 @@ export default function UserMenu({ user }: UserMenuProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [canAccessAdmin, setCanAccessAdmin] = useState(false) // 是否可以访问管理后台（开发者或管理者）
   const [isDeveloper, setIsDeveloper] = useState(false)
+  const [username, setUsername] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
   // 点击外部关闭菜单
@@ -30,21 +31,28 @@ export default function UserMenu({ user }: UserMenuProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // 检查是否是开发者或管理者
+  // 获取用户名 + 检查是否是开发者或管理者
   useEffect(() => {
-    const checkAdminAccess = async () => {
+    const fetchUserInfo = async () => {
       try {
-        const res = await fetch('/api/admin/verify')
-        const data = await res.json()
-        if (data.code === 200 && data.data?.authorized) {
+        const [profileRes, adminRes] = await Promise.all([
+          fetch('/api/user/profile'),
+          fetch('/api/admin/verify'),
+        ])
+        const profileData = await profileRes.json()
+        if (profileData.code === 200 && profileData.data?.username) {
+          setUsername(profileData.data.username)
+        }
+        const adminData = await adminRes.json()
+        if (adminData.code === 200 && adminData.data?.authorized) {
           setCanAccessAdmin(true)
-          setIsDeveloper(data.data.isDeveloper === true)
+          setIsDeveloper(adminData.data.isDeveloper === true)
         }
       } catch {
         // 忽略错误
       }
     }
-    checkAdminAccess()
+    fetchUserInfo()
   }, [])
 
   return (
@@ -76,6 +84,16 @@ export default function UserMenu({ user }: UserMenuProps) {
 
           {/* 菜单项 */}
           <div className="py-2">
+            {username && (
+              <Link
+                href={`/u/${username}`}
+                onClick={() => setIsOpen(false)}
+                className="flex items-center gap-3 px-4 py-2.5 text-sm text-muted hover:text-foreground hover:bg-card-border/40 transition-colors cursor-pointer"
+              >
+                <UserCircle className="w-4 h-4" />
+                <span>个人主页</span>
+              </Link>
+            )}
             <Link
               href="/admin"
               onClick={() => setIsOpen(false)}

@@ -4,7 +4,8 @@ import { use, useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft, BookOpen, List, Settings, Bookmark, Highlighter,
-  ChevronLeft, ChevronRight, Loader2, X, Moon, Sun, Type
+  ChevronLeft, ChevronRight, Loader2, X, Moon, Sun, Type,
+  Maximize, Minimize
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { useBookDetail, useSaveProgress, useReadingSettings, useSaveReadingSettings, useBookmarks, useHighlights } from '@/lib/hooks/use-library';
@@ -41,10 +42,12 @@ export default function ReaderPage({ params }: ReaderPageProps) {
   const [showSidebar, setShowSidebar] = useState<'toc' | 'bookmarks' | 'highlights' | 'settings' | null>(null);
   const [percentage, setPercentage] = useState(0);
   const [currentLocation, setCurrentLocation] = useState<string | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // 移动端自动隐藏工具栏（3秒无操作后隐藏）
+  // 自动隐藏工具栏（移动端始终生效，桌面端仅全屏时生效）
   const autoHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMobileRef = useRef(false);
+  const containerElRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     isMobileRef.current = window.innerWidth < 768;
@@ -53,23 +56,96 @@ export default function ReaderPage({ params }: ReaderPageProps) {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // ---- 全屏 API ----
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await containerElRef.current?.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch (err) {
+      console.error('Fullscreen toggle failed:', err);
+    }
+  }, []);
+
+  // 监听全屏变化（包括按 Esc 退出）
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const fs = !!document.fullscreenElement;
+      setIsFullscreen(fs);
+      if (fs) {
+        // 进入全屏：3秒后自动隐藏工具栏
+        if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
+        autoHideTimerRef.current = setTimeout(() => {
+          if (!showSidebar) setShowToolbar(false);
+        }, 3000);
+      } else {
+        // 退出全屏：恢复工具栏
+        setShowToolbar(true);
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, [showSidebar]);
+
+  // 全屏时鼠标移动到顶部/底部边缘显示工具栏
+  useEffect(() => {
+    if (!isFullscreen) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const nearTop = e.clientY < 60;
+      const nearBottom = e.clientY > window.innerHeight - 60;
+
+      if (nearTop || nearBottom) {
+        setShowToolbar(true);
+        // 重新启动自动隐藏
+        if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
+        autoHideTimerRef.current = setTimeout(() => {
+          if (!showSidebar) setShowToolbar(false);
+        }, 3000);
+      }
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    return () => document.removeEventListener('mousemove', handleMouseMove);
+  }, [isFullscreen, showSidebar]);
+
+  // 键盘快捷键：F 键切换全屏
+  useEffect(() => {
+    const handleKeydown = (e: KeyboardEvent) => {
+      // 避免在输入框中触发
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        toggleFullscreen();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeydown);
+    return () => document.removeEventListener('keydown', handleKeydown);
+  }, [toggleFullscreen]);
+
+  const shouldAutoHide = isMobileRef.current || isFullscreen;
+
   const resetAutoHide = useCallback(() => {
-    if (!isMobileRef.current) return;
+    if (!shouldAutoHide) return;
     if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
     autoHideTimerRef.current = setTimeout(() => {
       if (!showSidebar) setShowToolbar(false);
     }, 3000);
-  }, [showSidebar]);
+  }, [showSidebar, shouldAutoHide]);
 
   // 工具栏显示时启动自动隐藏计时器
   useEffect(() => {
-    if (showToolbar && isMobileRef.current && !showSidebar) {
+    if (showToolbar && shouldAutoHide && !showSidebar) {
       resetAutoHide();
     }
     return () => {
       if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
     };
-  }, [showToolbar, showSidebar, resetAutoHide]);
+  }, [showToolbar, showSidebar, shouldAutoHide, resetAutoHide]);
 
   // 阅读时间计时器
   const readTimeRef = useRef(0);
@@ -133,7 +209,7 @@ export default function ReaderPage({ params }: ReaderPageProps) {
   const handleToggleToolbar = useCallback(() => {
     setShowToolbar(prev => {
       const next = !prev;
-      if (next && isMobileRef.current) {
+      if (next && shouldAutoHide) {
         // 显示时启动自动隐藏
         if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
         autoHideTimerRef.current = setTimeout(() => {
@@ -143,7 +219,7 @@ export default function ReaderPage({ params }: ReaderPageProps) {
       return next;
     });
     if (showSidebar) setShowSidebar(null);
-  }, [showSidebar]);
+  }, [showSidebar, shouldAutoHide]);
 
   const handleAddBookmark = useCallback(async (location: string, title?: string) => {
     await addBookmark({ bookId: id, location, title });
@@ -235,6 +311,7 @@ export default function ReaderPage({ params }: ReaderPageProps) {
 
   return (
     <div
+      ref={containerElRef}
       className={`fixed inset-0 z-50 ${
         readerTheme === 'dark' ? 'bg-[#1a1a1a] text-[#ccc]' :
         readerTheme === 'sepia' ? 'bg-[#f4ecd8] text-[#5b4636]' :
@@ -345,6 +422,13 @@ export default function ReaderPage({ params }: ReaderPageProps) {
             title="设置"
           >
             <Settings className="w-4 h-4" />
+          </button>
+          <button
+            onClick={toggleFullscreen}
+            className="p-2 rounded-lg transition-colors hover:bg-black/5 hidden sm:flex items-center justify-center"
+            title={isFullscreen ? '退出全屏 (F)' : '沉浸阅读 (F)'}
+          >
+            {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
           </button>
         </div>
       </div>

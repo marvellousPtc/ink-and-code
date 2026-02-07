@@ -732,19 +732,27 @@ export default function LibraryPage() {
               <div
                 key={book.id}
                 onClick={() => handleOpenBook(book.id)}
-                className="group flex items-center gap-4 p-4 bg-card/40 border border-card-border/50 rounded-xl hover:border-primary/30 hover:bg-card/60 hover:shadow-md transition-all cursor-pointer"
+                className="group flex items-center gap-4 p-3 sm:p-4 bg-card/40 border border-card-border/50 rounded-xl hover:border-primary/30 hover:bg-card/60 hover:shadow-md transition-all cursor-pointer"
               >
-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-sm font-bold text-white shrink-0 ${FORMAT_BADGE_COLORS[book.format] || 'bg-gray-500'}`}>
-                  {book.format.charAt(0).toUpperCase()}
+                {/* 封面缩略图 */}
+                <div className="w-12 h-16 sm:w-14 sm:h-[74px] rounded-lg overflow-hidden shrink-0 shadow-sm border border-card-border/40">
+                  {book.cover ? (
+                    <img src={book.cover} alt={book.title} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className={`w-full h-full flex items-center justify-center text-sm font-bold text-white ${FORMAT_BADGE_COLORS[book.format] || 'bg-gray-500'}`}>
+                      {book.format.charAt(0).toUpperCase()}
+                    </div>
+                  )}
                 </div>
+
                 <div className="flex-1 min-w-0">
                   <h3 className="text-sm font-medium text-foreground truncate group-hover:text-primary transition-colors">
                     {book.title}
                   </h3>
-                  <div className="flex items-center gap-3 text-[10px] text-muted/50 mt-0.5">
+                  <div className="flex items-center gap-3 text-[10px] text-muted/50 mt-1">
                     {book.author && <span className="truncate max-w-[150px]">{book.author}</span>}
                     <span>{formatFileSize(book.fileSize)}</span>
-                    <span className={`uppercase font-bold px-1 py-0.5 rounded ${FORMAT_COLORS[book.format] || 'bg-card-border/30'}`}>
+                    <span className={`uppercase font-bold px-1.5 py-0.5 rounded ${FORMAT_COLORS[book.format] || 'bg-card-border/30'}`}>
                       {book.format}
                     </span>
                   </div>
