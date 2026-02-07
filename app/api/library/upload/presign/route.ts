@@ -148,12 +148,13 @@ export async function POST(request: Request) {
       };
     }
 
-    // 创建 OSS 客户端
+    // 创建 OSS 客户端（必须 secure:true，否则生成 http:// 签名 URL，浏览器 HTTPS 页面会拦截）
     const client = new OSS({
       region: ossConfig.region,
       bucket: ossConfig.bucket,
       accessKeyId: ossConfig.accessKeyId,
       accessKeySecret: ossConfig.accessKeySecret,
+      secure: true,
     });
 
     // 生成存储路径
