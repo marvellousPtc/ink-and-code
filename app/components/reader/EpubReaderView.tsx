@@ -7,7 +7,7 @@ import {
   useState,
   useMemo,
 } from 'react';
-import HTMLFlipBook from 'react-pageflip';
+import HTMLFlipBook from '@marvellousptc/react-pageflip';
 import { useEpubContent } from '@/lib/hooks/use-epub-content';
 import {
   useBookPagination,
@@ -71,9 +71,7 @@ export default function EpubReaderView({
 
     if (isMobile) {
       // 移动端：全屏显示，宽高占满可用空间
-      const pageW = containerSize.w;
-      const pageH = containerSize.h;
-      return { pageW, pageH };
+      return { pageW: containerSize.w, pageH: containerSize.h };
     }
 
     const maxBookWidth = containerSize.w - 48;
@@ -87,7 +85,6 @@ export default function EpubReaderView({
   }, [containerSize, isMobile]);
 
   // ---- 内容区域尺寸（去除 padding 和页码空间） ----
-  // 移动端用更小的 padding（16px），桌面端 40px
   const pagePadding = isMobile ? 16 : 40;
   const contentWidth = Math.max(200, pageDimensions.pageW - pagePadding * 2);
   const contentHeight = Math.max(200, pageDimensions.pageH - pagePadding * 2 - 24);
@@ -122,7 +119,7 @@ export default function EpubReaderView({
   const flipTargetRef = useRef(0);
   const currentPageRef = useRef(0);
 
-  // 首次分页完成后设置正确的起始页，避免先显示第0页再跳转的闪烁
+  // 首次分页完成后设置正确的起始页
   useEffect(() => {
     if (!pagination.isReady) return;
 
@@ -132,9 +129,7 @@ export default function EpubReaderView({
       flipTargetRef.current = startPage;
       currentPageRef.current = startPage;
 
-      // 延迟显示翻页书，等待 HTMLFlipBook 在正确页面初始化
       setTimeout(() => {
-        // 确保 FlipBook 在正确页码
         if (startPage > 0) {
           flipBookRef.current?.pageFlip()?.turnToPage(startPage);
         }
@@ -198,69 +193,49 @@ export default function EpubReaderView({
     return () => document.removeEventListener('keydown', handleKeydown);
   }, []);
 
-  // ---- 移动端：自定义触摸手势（点击翻页 + 更灵敏的滑动） ----
-  // 使用透明覆盖层拦截所有触摸事件，防止 react-pageflip 内部吞掉事件
-  const touchRef = useRef<{ x: number; y: number; t: number } | null>(null);
-  const overlayRef = useRef<HTMLDivElement>(null);
+  // ---- 移动端：滑动 + 点击翻页手势 ----
+  // 库的 singlePage 原生支持滑动，这里补充更灵敏的滑动检测和点击翻页。
+  const touchStartRef = useRef<{ x: number; y: number; t: number } | null>(null);
 
-  useEffect(() => {
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
     if (!isMobile) return;
-    const overlay = overlayRef.current;
-    if (!overlay) return;
+    const touch = e.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY, t: Date.now() };
+  }, [isMobile]);
 
-    const onTouchStart = (e: TouchEvent) => {
-      const touch = e.touches[0];
-      touchRef.current = { x: touch.clientX, y: touch.clientY, t: Date.now() };
-    };
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (!isMobile || !touchStartRef.current) return;
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - touchStartRef.current.x;
+    const dy = touch.clientY - touchStartRef.current.y;
+    const dt = Date.now() - touchStartRef.current.t;
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+    touchStartRef.current = null;
 
-    const onTouchEnd = (e: TouchEvent) => {
-      if (!touchRef.current) return;
-      const touch = e.changedTouches[0];
-      const dx = touch.clientX - touchRef.current.x;
-      const dy = touch.clientY - touchRef.current.y;
-      const dt = Date.now() - touchRef.current.t;
-      const absDx = Math.abs(dx);
-      const absDy = Math.abs(dy);
-      touchRef.current = null;
+    const pageFlip = flipBookRef.current?.pageFlip();
+    if (!pageFlip) return;
 
-      const pageFlip = flipBookRef.current?.pageFlip();
-      if (!pageFlip) return;
-
-      // 滑动翻页：水平距离 > 20px 且大于垂直距离，800ms 内完成
-      if (absDx > 20 && absDx > absDy * 0.8 && dt < 800) {
-        e.preventDefault();
-        if (dx < 0) {
-          pageFlip.flipNext();
-        } else {
-          pageFlip.flipPrev();
-        }
-        return;
+    // 滑动翻页：水平 > 20px，主要水平方向，800ms 内
+    if (absDx > 20 && absDx > absDy * 0.8 && dt < 800) {
+      if (dx < 0) {
+        pageFlip.flipNext();
+      } else {
+        pageFlip.flipPrev();
       }
+      return;
+    }
 
-      // 点击翻页：移动距离 < 15px 且时间 < 400ms
-      if (absDx < 15 && absDy < 15 && dt < 400) {
-        const screenW = containerSize.w;
-        const tapX = touch.clientX;
-
-        // 左侧 35% → 上一页，右侧 35% → 下一页，中间 30% → 不翻页（留给 toolbar toggle）
-        if (tapX < screenW * 0.35) {
-          e.preventDefault();
-          pageFlip.flipPrev();
-        } else if (tapX > screenW * 0.65) {
-          e.preventDefault();
-          pageFlip.flipNext();
-        }
-        // 中间区域：冒泡到父组件触发 toolbar toggle
+    // 点击翻页：几乎没移动，时间短
+    if (absDx < 10 && absDy < 10 && dt < 300) {
+      const tapX = touch.clientX;
+      if (tapX < containerSize.w * 0.35) {
+        pageFlip.flipPrev();
+      } else if (tapX > containerSize.w * 0.65) {
+        pageFlip.flipNext();
       }
-    };
-
-    overlay.addEventListener('touchstart', onTouchStart, { passive: true });
-    overlay.addEventListener('touchend', onTouchEnd, { passive: false });
-
-    return () => {
-      overlay.removeEventListener('touchstart', onTouchStart);
-      overlay.removeEventListener('touchend', onTouchEnd);
-    };
+      // 中间 30%：不处理，冒泡给父组件触发 toolbar toggle
+    }
   }, [isMobile, containerSize.w]);
 
   // ---- 主题 ----
@@ -280,8 +255,6 @@ export default function EpubReaderView({
   const emptyContent = contentParsed && pagination.isReady && pagination.totalPages === 0 && chapters.length === 0;
 
   // ---- 构建页面数据 ----
-  // 性能关键：在父组件决定是否传递 chapterHtml（懒渲染），
-  // 避免把 currentPage 传给每个 BookPage 导致 2000+ 个组件的 memo 比较。
   const pages = useMemo(() => {
     if (!ready) return [];
     return Array.from({ length: pagination.totalPages }, (_, i) => {
@@ -374,23 +347,12 @@ export default function EpubReaderView({
             opacity: showBook ? 1 : 0,
             transition: 'opacity 0.3s ease-in',
           }}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
         >
           {!isMobile && <div className="book-shadow" />}
           {!isMobile && <div className="page-stack-left" />}
           {!isMobile && <div className="page-stack-right" />}
-
-          {/* 移动端：透明触摸覆盖层，拦截所有触摸事件 */}
-          {isMobile && (
-            <div
-              ref={overlayRef}
-              style={{
-                position: 'absolute',
-                inset: 0,
-                zIndex: 10,
-                touchAction: 'pan-y',
-              }}
-            />
-          )}
 
           <HTMLFlipBook
             ref={flipBookRef}
@@ -404,15 +366,16 @@ export default function EpubReaderView({
             maxHeight={900}
             showCover={false}
             mobileScrollSupport={false}
-            useMouseEvents={!isMobile}
+            useMouseEvents={true}
             usePortrait={isMobile}
+            singlePage={isMobile}
             flippingTime={isMobile ? 350 : 600}
             drawShadow={!isMobile}
             maxShadowOpacity={isMobile ? 0.15 : 0.25}
             showPageCorners={!isMobile}
-            disableFlipByClick={isMobile}
-            clickEventForward={!isMobile}
-            swipeDistance={isMobile ? 10 : 30}
+            disableFlipByClick={false}
+            clickEventForward={true}
+            swipeDistance={isMobile ? 5 : 30}
             startPage={startPage}
             startZIndex={2}
             autoSize={false}
@@ -421,8 +384,6 @@ export default function EpubReaderView({
             style={{}}
           >
             {pages.map((p) => {
-              // 懒渲染：靠近当前页或起始页的页面才注入真实 HTML
-              // 需要同时考虑 startPage，确保初始显示的页面（恢复进度时）有内容
               const isNear = Math.abs(p.pageIndex - currentPage) <= LAZY_WINDOW
                 || Math.abs(p.pageIndex - startPage) <= LAZY_WINDOW;
               return (
