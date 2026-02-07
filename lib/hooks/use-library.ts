@@ -131,15 +131,18 @@ export function useBookList(search?: string, sort?: string) {
   if (sort) params.set('sort', sort);
   params.set('limit', '50');
 
-  const { data, error, isLoading, mutate } = useSWR<BookListData>(
+  const { data, error, isLoading, isValidating, mutate } = useSWR<BookListData>(
     `/api/library/list?${params.toString()}`,
-    fetcher
+    fetcher,
+    { keepPreviousData: true }
   );
 
   return {
     books: data?.list || [],
     pagination: data?.pagination,
-    isLoading,
+    // 仅首次加载（无缓存数据）才显示骨架屏，后续搜索/排序变化保持旧数据
+    isLoading: isLoading && !data,
+    isValidating,
     error,
     mutate,
   };
@@ -215,16 +218,28 @@ export function useUploadBook() {
             setUploadPhase('processing');
             resolve();
           } else {
-            reject(new Error(`OSS 上传失败 (${xhr.status})`));
+            // 尝试从 OSS 响应体解析错误详情
+            let detail = '';
+            try {
+              const match = xhr.responseText?.match(/<Message>(.*?)<\/Message>/);
+              if (match) detail = `: ${match[1]}`;
+            } catch {}
+            reject(new Error(`OSS 上传失败 (${xhr.status}${detail})`));
           }
         };
 
-        xhr.onerror = () => reject(new Error('网络错误，请检查连接后重试'));
+        xhr.onerror = () => {
+          // onerror 通常是 CORS 问题 — 浏览器拦截了跨域请求
+          const ossHost = new URL(signedUrl).host;
+          reject(new Error(
+            `OSS 直传被浏览器拦截（可能是 CORS 配置问题）。\n` +
+            `请在 OSS 控制台 → Bucket「${ossHost.split('.')[0]}」→ 权限管理 → 跨域设置 中添加规则：\n` +
+            `来源: ${location.origin}\n方法: PUT\n允许 Headers: *`
+          ));
+        };
         xhr.ontimeout = () => reject(new Error('上传超时，请重试'));
         xhr.timeout = 300000;
 
-        // 设置 Content-Type 与签名一致
-        xhr.setRequestHeader('Content-Type', contentType);
         xhr.send(file);
       });
 
@@ -350,30 +365,23 @@ export function useUploadBook() {
         return await directUpload(file);
       } catch (directErr) {
         const directMsg = directErr instanceof Error ? directErr.message : String(directErr);
-        console.warn('直传 OSS 失败:', directMsg, directErr);
+        console.warn('直传 OSS 失败，回退到服务端代理:', directMsg);
 
-        // 如果文件较大（>10MB），不回退到服务端代理（大概率也会被 nginx 拦截）
-        if (file.size > 10 * 1024 * 1024) {
-          throw new Error(
-            `直传 OSS 失败：${directMsg}\n` +
-            '请检查 OSS CORS 配置：\n' +
-            '1. 来源：填写你的网站域名（如 https://your-domain.com）\n' +
-            '2. 允许 Methods：勾选 PUT\n' +
-            '3. 允许 Headers：填写 *\n' +
-            '4. 暴露 Headers：填写 ETag'
-          );
-        }
-
-        // 小文件尝试回退到服务端代理
+        // 直传失败，回退到服务端代理上传
         try {
           return await serverUploadFile(file);
         } catch (serverErr) {
           const msg = serverErr instanceof Error ? serverErr.message : '';
           if (msg.includes('413') || msg.includes('太大') || msg.includes('client_max_body_size')) {
+            // 两条路径都失败，给出详细的 CORS 配置指引
             throw new Error(
-              `直传 OSS 失败：${directMsg}\n` +
-              '服务端代理上传也被 nginx 拦截。\n' +
-              '请检查 OSS CORS 配置（允许 PUT 方法），启用直传绕过 nginx 限制。'
+              '文件上传失败：直传 OSS 不可用，服务端代理又超出大小限制。\n\n' +
+              '请在 OSS 控制台配置 CORS 规则以启用直传：\n' +
+              `1. 来源：${location.origin}\n` +
+              '2. 允许 Methods：勾选 PUT\n' +
+              '3. 允许 Headers：*\n' +
+              '4. 暴露 Headers：ETag\n\n' +
+              '或增大 nginx 的 client_max_body_size（如 100m）'
             );
           }
           throw serverErr;

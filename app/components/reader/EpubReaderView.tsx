@@ -70,9 +70,9 @@ export default function EpubReaderView({
     const availH = containerSize.h - 32; // 上下留白
 
     if (isMobile) {
-      // 移动端：单页全宽，减少边距以最大化阅读面积
-      const pageW = Math.min(containerSize.w - 8, 600);
-      const pageH = Math.min(availH, pageW * 1.5);
+      // 移动端：全屏显示，宽高占满可用空间
+      const pageW = containerSize.w;
+      const pageH = containerSize.h;
       return { pageW, pageH };
     }
 
@@ -87,10 +87,10 @@ export default function EpubReaderView({
   }, [containerSize, isMobile]);
 
   // ---- 内容区域尺寸（去除 padding 和页码空间） ----
-  // 移动端用更小的 padding（20px），桌面端 40px
-  const pagePadding = isMobile ? 20 : 40;
+  // 移动端用更小的 padding（16px），桌面端 40px
+  const pagePadding = isMobile ? 16 : 40;
   const contentWidth = Math.max(200, pageDimensions.pageW - pagePadding * 2);
-  const contentHeight = Math.max(200, pageDimensions.pageH - pagePadding * 2 - 30);
+  const contentHeight = Math.max(200, pageDimensions.pageH - pagePadding * 2 - 24);
 
   // ---- 分页 ----
   const pagination = useBookPagination(
@@ -283,6 +283,19 @@ export default function EpubReaderView({
           }
           .epub-page-content p {
             margin: 0.5em 0;
+            text-align: justify !important;
+            text-indent: 2em !important;
+          }
+          .epub-page-content h1, .epub-page-content h2, .epub-page-content h3,
+          .epub-page-content h4, .epub-page-content h5, .epub-page-content h6 {
+            text-indent: 0 !important;
+            text-align: left !important;
+          }
+          .epub-page-content blockquote {
+            text-indent: 0 !important;
+          }
+          .epub-page-content {
+            text-align: justify !important;
           }
           ${epubStyles}
         ` }} />

@@ -1,3 +1,12 @@
+/*
+ * :file description: 
+ * :name: /ink-and-code/app/library/page.tsx
+ * :author: PTC
+ * :copyright: (c) 2026, Tungee
+ * :date created: 2026-02-07 11:33:11
+ * :last editor: PTC
+ * :date last edited: 2026-02-07 21:39:23
+ */
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
@@ -5,7 +14,7 @@ import { useRouter } from 'next/navigation';
 import {
   BookOpen, Upload, Search, X, Trash2, Clock, Library,
   Grid3X3, List, SortAsc, FileText, Loader2, AlertTriangle,
-  BookMarked, Info, CheckCircle2, XCircle
+  BookMarked, Info, CheckCircle2, XCircle, ImageIcon
 } from 'lucide-react';
 import { useBookList, useUploadBook, useDeleteBook, useLibraryRole } from '@/lib/hooks/use-library';
 
@@ -252,7 +261,20 @@ export default function LibraryPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [sort, setSort] = useState<string>('recent');
+
+  // 搜索防抖 300ms
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 300);
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, [search]);
   const [view, setView] = useState<'grid' | 'list'>('grid');
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -266,16 +288,39 @@ export default function LibraryPage() {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const toastIdRef = useRef(0);
 
-  const { books, isLoading, mutate } = useBookList(search, sort);
+  const { books, isLoading, mutate } = useBookList(debouncedSearch, sort);
   const { upload, isUploading, progress, uploadPhase } = useUploadBook();
   const { deleteBook } = useDeleteBook();
   const { canUpload, canDelete } = useLibraryRole();
+  const [isExtractingCovers, setIsExtractingCovers] = useState(false);
 
   // Toast 工具
   const addToast = useCallback((type: ToastItem['type'], message: string) => {
     const id = ++toastIdRef.current;
     setToasts(prev => [...prev, { id, type, message }]);
   }, []);
+
+  // 提取已有 EPUB 封面
+  const handleExtractCovers = useCallback(async () => {
+    setIsExtractingCovers(true);
+    try {
+      const res = await fetch('/api/library/extract-covers', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const json = await res.json();
+      if (json.code === 200) {
+        addToast('success', json.message);
+        mutate();
+      } else {
+        addToast('error', json.message || '提取封面失败');
+      }
+    } catch {
+      addToast('error', '提取封面失败');
+    } finally {
+      setIsExtractingCovers(false);
+    }
+  }, [mutate, addToast]);
 
   const removeToast = useCallback((id: number) => {
     setToasts(prev => prev.filter(t => t.id !== id));
@@ -418,13 +463,31 @@ export default function LibraryPage() {
                     </div>
                   </div>
                 ) : (
-                  <button
-                    onClick={() => setShowUploadHint(true)}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-bold hover:bg-primary/90 transition-all shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/25 hover:-translate-y-0.5"
-                  >
-                    <Upload className="w-4 h-4" />
-                    <span>上传书籍</span>
-                  </button>
+                  <>
+                    {/* 提取封面按钮 — 有无封面 EPUB 时显示 */}
+                    {books.some(b => b.format === 'epub' && !b.cover) && (
+                      <button
+                        onClick={handleExtractCovers}
+                        disabled={isExtractingCovers}
+                        className="flex items-center gap-2 px-4 py-2.5 bg-card border border-card-border/60 rounded-xl text-sm font-medium text-muted hover:text-foreground hover:border-primary/40 transition-all"
+                        title="为已有 EPUB 书籍提取封面"
+                      >
+                        {isExtractingCovers ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <ImageIcon className="w-4 h-4" />
+                        )}
+                        <span>{isExtractingCovers ? '提取中...' : '提取封面'}</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setShowUploadHint(true)}
+                      className="flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-bold hover:bg-primary/90 transition-all shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/25 hover:-translate-y-0.5"
+                    >
+                      <Upload className="w-4 h-4" />
+                      <span>上传书籍</span>
+                    </button>
+                  </>
                 )}
               </div>
             )}

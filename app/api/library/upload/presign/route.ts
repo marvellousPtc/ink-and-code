@@ -164,10 +164,13 @@ export async function POST(request: Request) {
     const dir = ossConfig.dir.replace(/\/$/, '');
     const objectName = `${dir}/library/${fileName}`;
 
+    const finalContentType = contentType || 'application/octet-stream';
+
     // 生成签名上传 URL（有效期 1 小时）
+    // 注意：不在签名中包含 Content-Type，避免签名不匹配导致 403（浏览器端
+    // 发送的 Content-Type 可能与签名时的不完全一致）。OSS 会正常接受请求。
     const signedUrl = client.signatureUrl(objectName, {
       method: 'PUT',
-      'Content-Type': contentType || 'application/octet-stream',
       expires: 3600,
     });
 
@@ -190,7 +193,7 @@ export async function POST(request: Request) {
         fileUrl,
         format,
         filename: fileName,
-        contentType: contentType || 'application/octet-stream',
+        contentType: finalContentType,
       },
     });
   } catch (error) {

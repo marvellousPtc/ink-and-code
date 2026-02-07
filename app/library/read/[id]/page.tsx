@@ -42,6 +42,35 @@ export default function ReaderPage({ params }: ReaderPageProps) {
   const [percentage, setPercentage] = useState(0);
   const [currentLocation, setCurrentLocation] = useState<string | null>(null);
 
+  // 移动端自动隐藏工具栏（3秒无操作后隐藏）
+  const autoHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMobileRef = useRef(false);
+
+  useEffect(() => {
+    isMobileRef.current = window.innerWidth < 768;
+    const handleResize = () => { isMobileRef.current = window.innerWidth < 768; };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const resetAutoHide = useCallback(() => {
+    if (!isMobileRef.current) return;
+    if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
+    autoHideTimerRef.current = setTimeout(() => {
+      if (!showSidebar) setShowToolbar(false);
+    }, 3000);
+  }, [showSidebar]);
+
+  // 工具栏显示时启动自动隐藏计时器
+  useEffect(() => {
+    if (showToolbar && isMobileRef.current && !showSidebar) {
+      resetAutoHide();
+    }
+    return () => {
+      if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
+    };
+  }, [showToolbar, showSidebar, resetAutoHide]);
+
   // 阅读时间计时器
   const readTimeRef = useRef(0);
   const lastSaveRef = useRef(Date.now());
@@ -102,7 +131,17 @@ export default function ReaderPage({ params }: ReaderPageProps) {
   }, []);
 
   const handleToggleToolbar = useCallback(() => {
-    setShowToolbar(prev => !prev);
+    setShowToolbar(prev => {
+      const next = !prev;
+      if (next && isMobileRef.current) {
+        // 显示时启动自动隐藏
+        if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
+        autoHideTimerRef.current = setTimeout(() => {
+          if (!showSidebar) setShowToolbar(false);
+        }, 3000);
+      }
+      return next;
+    });
     if (showSidebar) setShowSidebar(null);
   }, [showSidebar]);
 
@@ -196,70 +235,14 @@ export default function ReaderPage({ params }: ReaderPageProps) {
 
   return (
     <div
-      className={`fixed inset-0 z-50 flex flex-col ${
+      className={`fixed inset-0 z-50 ${
         readerTheme === 'dark' ? 'bg-[#1a1a1a] text-[#ccc]' :
         readerTheme === 'sepia' ? 'bg-[#f4ecd8] text-[#5b4636]' :
         'bg-white text-[#333]'
       }`}
     >
-      {/* 顶部工具栏 */}
-      <div
-        className={`shrink-0 flex items-center justify-between px-4 h-12 border-b transition-all duration-300 ${
-          showToolbar ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0 pointer-events-none'
-        } ${
-          readerTheme === 'dark' ? 'bg-[#222] border-[#333]' :
-          readerTheme === 'sepia' ? 'bg-[#ede0c8] border-[#d4c5a9]' :
-          'bg-gray-50 border-gray-200'
-        }`}
-      >
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => router.push('/library')}
-            className="p-1.5 rounded-lg hover:bg-black/5 transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-          <span className="text-sm font-medium truncate max-w-[120px] sm:max-w-md">
-            {book.title}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setShowSidebar(showSidebar === 'toc' ? null : 'toc')}
-            className={`p-2 rounded-lg transition-colors ${showSidebar === 'toc' ? 'bg-primary/10 text-primary' : 'hover:bg-black/5'}`}
-            title="目录"
-          >
-            <List className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setShowSidebar(showSidebar === 'bookmarks' ? null : 'bookmarks')}
-            className={`p-2 rounded-lg transition-colors ${showSidebar === 'bookmarks' ? 'bg-primary/10 text-primary' : 'hover:bg-black/5'}`}
-            title="书签"
-          >
-            <Bookmark className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setShowSidebar(showSidebar === 'highlights' ? null : 'highlights')}
-            className={`p-2 rounded-lg transition-colors ${showSidebar === 'highlights' ? 'bg-primary/10 text-primary' : 'hover:bg-black/5'}`}
-            title="划线笔记"
-          >
-            <Highlighter className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setShowSidebar(showSidebar === 'settings' ? null : 'settings')}
-            className={`p-2 rounded-lg transition-colors ${showSidebar === 'settings' ? 'bg-primary/10 text-primary' : 'hover:bg-black/5'}`}
-            title="设置"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
-      {/* 主内容区 */}
-      <div className="flex-1 flex overflow-hidden relative">
-        {/* 阅读区域 */}
-        <div className="flex-1 min-w-0 relative" onClick={handleToggleToolbar}>
+      {/* 阅读区域 — 占满全屏（移动端翻页区域是整个屏幕） */}
+      <div className="absolute inset-0" onClick={handleToggleToolbar}>
           {isUnsupportedFormat && (
             <div className="flex items-center justify-center h-full" onClick={(e) => e.stopPropagation()}>
               <div className="text-center max-w-sm px-4">
@@ -308,29 +291,84 @@ export default function ReaderPage({ params }: ReaderPageProps) {
               onProgressUpdate={handleProgressUpdate}
             />
           )}
+      </div>
+
+      {/* 顶部工具栏 — 浮动在阅读区域上方 */}
+      <div
+        onPointerDown={resetAutoHide}
+        className={`absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 h-12 border-b transition-all duration-300 ${
+          showToolbar ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0 pointer-events-none'
+        } ${
+          readerTheme === 'dark' ? 'bg-[#222]/95 border-[#333] backdrop-blur-sm' :
+          readerTheme === 'sepia' ? 'bg-[#ede0c8]/95 border-[#d4c5a9] backdrop-blur-sm' :
+          'bg-gray-50/95 border-gray-200 backdrop-blur-sm'
+        }`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => router.push('/library')}
+            className="p-1.5 rounded-lg hover:bg-black/5 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+          <span className="text-sm font-medium truncate max-w-[120px] sm:max-w-md">
+            {book.title}
+          </span>
         </div>
 
-        {/* 侧边栏 — 移动端全屏覆盖，桌面端侧栏 */}
-        {showSidebar && (
-          <>
-            {/* 移动端遮罩层 */}
-            <div
-              className="fixed inset-0 bg-black/40 z-40 sm:hidden"
-              onClick={() => setShowSidebar(null)}
-            />
-            <div
-              className={`
-                fixed inset-y-0 right-0 w-[85vw] max-w-80 z-50
-                sm:relative sm:inset-auto sm:w-80 sm:z-auto
-                border-l shrink-0 flex flex-col overflow-hidden
-                ${
-                  readerTheme === 'dark' ? 'bg-[#1e1e1e] border-[#333]' :
-                  readerTheme === 'sepia' ? 'bg-[#ede0c8] border-[#d4c5a9]' :
-                  'bg-gray-50 border-gray-200'
-                }
-              `}
-              onClick={(e) => e.stopPropagation()}
-            >
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setShowSidebar(showSidebar === 'toc' ? null : 'toc')}
+            className={`p-2 rounded-lg transition-colors ${showSidebar === 'toc' ? 'bg-primary/10 text-primary' : 'hover:bg-black/5'}`}
+            title="目录"
+          >
+            <List className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => setShowSidebar(showSidebar === 'bookmarks' ? null : 'bookmarks')}
+            className={`p-2 rounded-lg transition-colors ${showSidebar === 'bookmarks' ? 'bg-primary/10 text-primary' : 'hover:bg-black/5'}`}
+            title="书签"
+          >
+            <Bookmark className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => setShowSidebar(showSidebar === 'highlights' ? null : 'highlights')}
+            className={`p-2 rounded-lg transition-colors ${showSidebar === 'highlights' ? 'bg-primary/10 text-primary' : 'hover:bg-black/5'}`}
+            title="划线笔记"
+          >
+            <Highlighter className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => setShowSidebar(showSidebar === 'settings' ? null : 'settings')}
+            className={`p-2 rounded-lg transition-colors ${showSidebar === 'settings' ? 'bg-primary/10 text-primary' : 'hover:bg-black/5'}`}
+            title="设置"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* 侧边栏 — 移动端全屏覆盖，桌面端侧栏 */}
+      {showSidebar && (
+        <>
+          {/* 移动端遮罩层 */}
+          <div
+            className="fixed inset-0 bg-black/40 z-40 sm:hidden"
+            onClick={() => setShowSidebar(null)}
+          />
+          <div
+            className={`
+              fixed inset-y-0 right-0 w-[85vw] max-w-80 z-50
+              border-l shrink-0 flex flex-col overflow-hidden
+              ${
+                readerTheme === 'dark' ? 'bg-[#1e1e1e] border-[#333]' :
+                readerTheme === 'sepia' ? 'bg-[#ede0c8] border-[#d4c5a9]' :
+                'bg-gray-50 border-gray-200'
+              }
+            `}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between px-4 py-3 border-b border-inherit">
               <span className="text-sm font-bold">
                 {showSidebar === 'toc' && '目录'}
@@ -511,16 +549,16 @@ export default function ReaderPage({ params }: ReaderPageProps) {
           </div>
           </>
         )}
-      </div>
 
-      {/* 底部进度条 */}
+      {/* 底部进度条 — 浮动在阅读区域下方 */}
       <div
-        className={`shrink-0 px-4 py-2 border-t flex items-center gap-3 transition-all duration-300 ${
+        onPointerDown={resetAutoHide}
+        className={`absolute bottom-0 left-0 right-0 z-20 px-4 py-2 border-t flex items-center gap-3 transition-all duration-300 ${
           showToolbar ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'
         } ${
-          readerTheme === 'dark' ? 'bg-[#222] border-[#333]' :
-          readerTheme === 'sepia' ? 'bg-[#ede0c8] border-[#d4c5a9]' :
-          'bg-gray-50 border-gray-200'
+          readerTheme === 'dark' ? 'bg-[#222]/95 border-[#333] backdrop-blur-sm' :
+          readerTheme === 'sepia' ? 'bg-[#ede0c8]/95 border-[#d4c5a9] backdrop-blur-sm' :
+          'bg-gray-50/95 border-gray-200 backdrop-blur-sm'
         }`}
         onClick={(e) => e.stopPropagation()}
       >

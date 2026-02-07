@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import OSS from 'ali-oss';
 import { prisma } from '@/lib/prisma';
 import { requireAuth, ApiError } from '@/lib/api-response';
+import { extractEpubCover, extractEpubMetadata } from '@/lib/epub-cover';
 import { execFile } from 'child_process';
 import { writeFile, readFile, unlink, mkdtemp } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -210,8 +211,40 @@ export async function POST(request: Request) {
       fileUrl = `https://${ossConfig.bucket}.oss-${region}.aliyuncs.com/${objectName}`;
     }
 
-    // 从文件名提取标题
-    const title = customTitle || file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
+    // EPUB：提取封面和元数据
+    let coverUrl: string | null = null;
+    let epubTitle: string | undefined;
+    let epubAuthor: string | undefined;
+
+    if (format === 'epub') {
+      try {
+        // 提取元数据（标题、作者）
+        const metadata = extractEpubMetadata(buffer);
+        epubTitle = metadata.title;
+        epubAuthor = metadata.author;
+
+        // 提取封面图片
+        const cover = await extractEpubCover(buffer);
+        if (cover) {
+          const coverObjectName = objectName.replace(/\.epub$/i, `-cover.${cover.ext}`);
+          await client.put(coverObjectName, cover.data, {
+            headers: { 'Content-Type': cover.contentType },
+          });
+          if (ossConfig.domain) {
+            const domain = ossConfig.domain.replace(/\/$/, '');
+            coverUrl = `${domain}/${coverObjectName}`;
+          } else {
+            const region = ossConfig.region.replace(/^oss-/, '');
+            coverUrl = `https://${ossConfig.bucket}.oss-${region}.aliyuncs.com/${coverObjectName}`;
+          }
+        }
+      } catch (e) {
+        console.warn('EPUB 封面/元数据提取失败:', e);
+      }
+    }
+
+    // 从文件名提取标题（EPUB 元数据优先）
+    const title = customTitle || epubTitle || file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
 
     // DOCX 转 HTML
     let readableUrl: string | null = null;
@@ -288,7 +321,8 @@ export async function POST(request: Request) {
     const book = await prisma.book.create({
       data: {
         title,
-        author: customAuthor || null,
+        author: customAuthor || epubAuthor || null,
+        cover: coverUrl,
         format,
         originalUrl: fileUrl,
         readableUrl,

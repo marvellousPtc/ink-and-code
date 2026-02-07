@@ -113,6 +113,19 @@ export function useBookPagination(
               height: auto !important;
               object-fit: contain !important;
             }
+            .epub-measure-container {
+              text-align: justify !important;
+            }
+            .epub-measure-container p {
+              margin: 0.5em 0;
+              text-align: justify !important;
+              text-indent: 2em !important;
+            }
+            .epub-measure-container h1, .epub-measure-container h2, .epub-measure-container h3,
+            .epub-measure-container h4, .epub-measure-container h5, .epub-measure-container h6 {
+              text-indent: 0 !important;
+              text-align: left !important;
+            }
             ${styles}
           </style>
           <div class="epub-measure-container" style="
