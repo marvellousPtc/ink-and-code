@@ -22,6 +22,7 @@ export default function EpubReaderView({
 }: EpubReaderViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const shadowRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<Book | null>(null);
   const renditionRef = useRef<Rendition | null>(null);
   const [isReady, setIsReady] = useState(false);
@@ -29,44 +30,67 @@ export default function EpubReaderView({
 
   const animatingRef = useRef(false);
 
-  // 掀页角翻页动画：右下角轻轻掀起
+  // ---- turn.js 风格翻书动画：沿书脊 rotateY 翻转 ----
   const animatePageTurn = useCallback((direction: 'prev' | 'next') => {
     const rendition = renditionRef.current;
     const wrapper = wrapperRef.current;
+    const shadow = shadowRef.current;
     if (!rendition || !wrapper || animatingRef.current) return;
 
     animatingRef.current = true;
+    const isNext = direction === 'next';
 
-    // 掀起页角：绕底边做小幅度 rotateX，配合轻微位移
-    const origin = direction === 'next' ? 'bottom right' : 'bottom left';
-    wrapper.style.transformOrigin = origin;
-    wrapper.style.transition = 'transform 280ms ease-in-out, opacity 250ms ease-in';
-    wrapper.style.transform = 'rotateX(4deg) scale(0.97)';
-    wrapper.style.opacity = '0.4';
+    // Phase 1 —— 当前页沿书脊翻走
+    wrapper.style.transformOrigin = isNext ? 'left center' : 'right center';
+    wrapper.style.transition = 'transform 380ms cubic-bezier(0.4, 0.0, 0.7, 1)';
+    wrapper.style.transform = `rotateY(${isNext ? '-90' : '90'}deg)`;
+
+    if (shadow) {
+      shadow.style.transition = 'opacity 380ms cubic-bezier(0.4, 0.0, 0.7, 1)';
+      shadow.style.background = isNext
+        ? 'linear-gradient(to left, rgba(0,0,0,0.25) 0%, transparent 80%)'
+        : 'linear-gradient(to right, rgba(0,0,0,0.25) 0%, transparent 80%)';
+      shadow.style.opacity = '1';
+    }
 
     setTimeout(() => {
-      if (direction === 'next') rendition.next();
+      // 换页
+      if (isNext) rendition.next();
       else rendition.prev();
 
-      // 新页轻微抬起后落下
+      // Phase 2 —— 新页从对侧翻入
       wrapper.style.transition = 'none';
-      wrapper.style.transform = 'rotateX(-3deg) scale(0.98)';
-      wrapper.style.opacity = '0.5';
+      wrapper.style.transform = `rotateY(${isNext ? '90' : '-90'}deg)`;
 
-      void wrapper.offsetHeight;
+      if (shadow) {
+        shadow.style.transition = 'none';
+        shadow.style.background = isNext
+          ? 'linear-gradient(to right, rgba(0,0,0,0.25) 0%, transparent 80%)'
+          : 'linear-gradient(to left, rgba(0,0,0,0.25) 0%, transparent 80%)';
+      }
 
-      wrapper.style.transition = 'transform 250ms ease-out, opacity 200ms ease-out';
-      wrapper.style.transform = 'rotateX(0deg) scale(1)';
-      wrapper.style.opacity = '1';
+      void wrapper.offsetHeight; // force reflow
+
+      wrapper.style.transition = 'transform 380ms cubic-bezier(0.0, 0.0, 0.2, 1)';
+      wrapper.style.transform = 'rotateY(0deg)';
+
+      if (shadow) {
+        shadow.style.transition = 'opacity 380ms cubic-bezier(0.0, 0.0, 0.2, 1)';
+        shadow.style.opacity = '0';
+      }
 
       setTimeout(() => {
         animatingRef.current = false;
         wrapper.style.transition = '';
         wrapper.style.transform = '';
-        wrapper.style.opacity = '';
         wrapper.style.transformOrigin = '';
-      }, 260);
-    }, 280);
+        if (shadow) {
+          shadow.style.transition = '';
+          shadow.style.opacity = '';
+          shadow.style.background = '';
+        }
+      }, 400);
+    }, 380);
   }, []);
 
   // 加载 EPUB
@@ -195,9 +219,9 @@ export default function EpubReaderView({
     });
   }, [settings?.fontSize, settings?.lineHeight, settings?.fontFamily, settings]);
 
-  // --- 触摸手势：掀页角翻页 ---
+  // ---- 触摸手势：turn.js 风格跟手翻书 ----
   const touchRef = useRef<{ x: number; y: number; t: number; moved: boolean } | null>(null);
-  const didPageTurnRef = useRef(false); // 标记最近一次 touch 是否触发了翻页
+  const didPageTurnRef = useRef(false);
 
   const onTouchStart = useCallback((e: React.TouchEvent) => {
     if (animatingRef.current) return;
@@ -212,6 +236,7 @@ export default function EpubReaderView({
   const onTouchMove = useCallback((e: React.TouchEvent) => {
     if (!touchRef.current || animatingRef.current) return;
     const wrapper = wrapperRef.current;
+    const shadow = shadowRef.current;
     if (!wrapper) return;
 
     const dx = e.touches[0].clientX - touchRef.current.x;
@@ -222,17 +247,23 @@ export default function EpubReaderView({
     }
 
     if (touchRef.current.moved) {
-      // 跟手掀页角：小幅度 rotateX + 轻微缩放，像掀开一角
+      // 跟手翻书：水平拖动映射到 rotateY 角度
       const screenWidth = window.innerWidth;
-      const ratio = Math.min(1, Math.abs(dx) / (screenWidth * 0.4));
-      const rotateX = ratio * 5; // 最多掀 5 度
-      const scaleVal = 1 - ratio * 0.04; // 最多缩到 0.96
-      const opacity = 1 - ratio * 0.5;
+      const ratio = Math.min(1, Math.abs(dx) / (screenWidth * 0.45));
+      const angle = ratio * 90;
+      const isNext = dx < 0;
 
       wrapper.style.transition = 'none';
-      wrapper.style.transformOrigin = dx < 0 ? 'bottom right' : 'bottom left';
-      wrapper.style.transform = `rotateX(${rotateX}deg) scale(${scaleVal})`;
-      wrapper.style.opacity = String(opacity);
+      wrapper.style.transformOrigin = isNext ? 'left center' : 'right center';
+      wrapper.style.transform = `rotateY(${isNext ? -angle : angle}deg)`;
+
+      if (shadow) {
+        shadow.style.transition = 'none';
+        shadow.style.opacity = String(ratio * 0.7);
+        shadow.style.background = isNext
+          ? 'linear-gradient(to left, rgba(0,0,0,0.25) 0%, transparent 80%)'
+          : 'linear-gradient(to right, rgba(0,0,0,0.25) 0%, transparent 80%)';
+      }
     }
   }, []);
 
@@ -244,6 +275,7 @@ export default function EpubReaderView({
     touchRef.current = null;
 
     const wrapper = wrapperRef.current;
+    const shadow = shadowRef.current;
     if (!wrapper) return;
 
     // 点击翻页
@@ -264,50 +296,77 @@ export default function EpubReaderView({
     const shouldTurn = velocity > 0.4 || Math.abs(dx) > 60;
 
     if (shouldTurn && Math.abs(dx) > 20) {
-      // 掀起翻页
+      // 完成翻书：继续旋转到 90° 然后换页
       didPageTurnRef.current = true;
       animatingRef.current = true;
-      const direction = dx > 0 ? 'prev' : 'next';
-      const origin = direction === 'next' ? 'bottom right' : 'bottom left';
+      const isNext = dx < 0;
 
-      wrapper.style.transformOrigin = origin;
-      wrapper.style.transition = 'transform 220ms ease-in, opacity 200ms ease-in';
-      wrapper.style.transform = 'rotateX(6deg) scale(0.95)';
-      wrapper.style.opacity = '0.3';
+      wrapper.style.transformOrigin = isNext ? 'left center' : 'right center';
+      wrapper.style.transition = 'transform 280ms cubic-bezier(0.4, 0.0, 0.7, 1)';
+      wrapper.style.transform = `rotateY(${isNext ? '-90' : '90'}deg)`;
+
+      if (shadow) {
+        shadow.style.transition = 'opacity 280ms cubic-bezier(0.4, 0.0, 0.7, 1)';
+        shadow.style.opacity = '1';
+      }
 
       setTimeout(() => {
-        if (direction === 'next') renditionRef.current?.next();
+        if (isNext) renditionRef.current?.next();
         else renditionRef.current?.prev();
 
+        // 新页从对侧翻入
         wrapper.style.transition = 'none';
-        wrapper.style.transform = 'rotateX(-3deg) scale(0.97)';
-        wrapper.style.opacity = '0.4';
+        wrapper.style.transform = `rotateY(${isNext ? '90' : '-90'}deg)`;
+
+        if (shadow) {
+          shadow.style.transition = 'none';
+          shadow.style.background = isNext
+            ? 'linear-gradient(to right, rgba(0,0,0,0.25) 0%, transparent 80%)'
+            : 'linear-gradient(to left, rgba(0,0,0,0.25) 0%, transparent 80%)';
+        }
+
         void wrapper.offsetHeight;
 
-        wrapper.style.transition = 'transform 220ms ease-out, opacity 180ms ease-out';
-        wrapper.style.transform = 'rotateX(0deg) scale(1)';
-        wrapper.style.opacity = '1';
+        wrapper.style.transition = 'transform 280ms cubic-bezier(0.0, 0.0, 0.2, 1)';
+        wrapper.style.transform = 'rotateY(0deg)';
+
+        if (shadow) {
+          shadow.style.transition = 'opacity 280ms cubic-bezier(0.0, 0.0, 0.2, 1)';
+          shadow.style.opacity = '0';
+        }
 
         setTimeout(() => {
           animatingRef.current = false;
           wrapper.style.transition = '';
           wrapper.style.transform = '';
-          wrapper.style.opacity = '';
           wrapper.style.transformOrigin = '';
-        }, 230);
-      }, 220);
+          if (shadow) {
+            shadow.style.transition = '';
+            shadow.style.opacity = '';
+            shadow.style.background = '';
+          }
+        }, 300);
+      }, 280);
     } else {
-      // 回弹
-      wrapper.style.transition = 'transform 200ms ease-out, opacity 200ms ease-out';
-      wrapper.style.transform = 'rotateX(0deg) scale(1)';
-      wrapper.style.opacity = '1';
+      // 回弹：旋转角度不够，弹回原位
+      wrapper.style.transition = 'transform 300ms cubic-bezier(0.0, 0.0, 0.2, 1)';
+      wrapper.style.transform = 'rotateY(0deg)';
+
+      if (shadow) {
+        shadow.style.transition = 'opacity 300ms cubic-bezier(0.0, 0.0, 0.2, 1)';
+        shadow.style.opacity = '0';
+      }
 
       setTimeout(() => {
         wrapper.style.transition = '';
         wrapper.style.transform = '';
-        wrapper.style.opacity = '';
         wrapper.style.transformOrigin = '';
-      }, 210);
+        if (shadow) {
+          shadow.style.transition = '';
+          shadow.style.opacity = '';
+          shadow.style.background = '';
+        }
+      }, 310);
     }
   }, [animatePageTurn]);
 
@@ -323,8 +382,8 @@ export default function EpubReaderView({
   }
 
   return (
-    <div className="relative w-full h-full overflow-hidden" style={{ perspective: '800px' }}>
-      {/* 动画 wrapper：掀页角效果 */}
+    <div className="relative w-full h-full overflow-hidden" style={{ perspective: '1200px' }}>
+      {/* 翻书 wrapper：绕书脊 rotateY 实现 turn.js 风格翻页 */}
       <div
         ref={wrapperRef}
         className="w-full h-full will-change-transform"
@@ -332,6 +391,13 @@ export default function EpubReaderView({
       >
         <div ref={containerRef} className="w-full h-full" />
       </div>
+
+      {/* 翻页阴影层：模拟书页翻转时的光影变化 */}
+      <div
+        ref={shadowRef}
+        className="absolute inset-0 pointer-events-none z-5"
+        style={{ opacity: 0 }}
+      />
 
       {/* 透明触摸层 */}
       {isReady && (
