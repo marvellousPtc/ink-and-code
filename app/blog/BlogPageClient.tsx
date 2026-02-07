@@ -399,16 +399,43 @@ export default function BlogPageClient({ initialPosts }: BlogPageClientProps) {
               </article>
             </>
           ) : articleLoading ? (
-            <div className="max-w-5xl 2xl:max-w-6xl mx-auto bg-card/40 border border-card-border rounded-2xl p-12 animate-pulse space-y-8">
-              <div className="space-y-3">
-                <div className="h-5 w-28 bg-card-border/60 rounded-full" />
-                <div className="h-10 w-3/4 bg-card-border/60 rounded-xl" />
+            <div className="flex-1 min-w-0 xl:pr-6 2xl:pr-10 animate-pulse">
+              {/* 模拟文章头部 */}
+              <div className="pb-6 border-b border-card-border/40">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="h-6 w-24 bg-card-border/40 rounded-full" />
+                  <div className="h-6 w-20 bg-card-border/30 rounded-full" />
+                </div>
+                <div className="h-9 w-4/5 bg-card-border/50 rounded-xl mb-3" />
+                <div className="h-7 w-2/5 bg-card-border/40 rounded-xl mb-5" />
+                <div className="flex items-center gap-2 pl-5 border-l-2 border-card-border/30">
+                  <div className="h-5 w-full max-w-md bg-card-border/25 rounded-lg" />
+                </div>
+                <div className="flex items-center gap-4 mt-5">
+                  <div className="h-3 w-20 bg-card-border/25 rounded" />
+                  <div className="h-3 w-16 bg-card-border/25 rounded" />
+                </div>
               </div>
-              <div className="h-6 w-full bg-card-border/40 rounded-lg" />
-              <div className="space-y-4 pt-8">
-                <div className="h-4 w-full bg-card-border/30 rounded-lg" />
-                <div className="h-4 w-full bg-card-border/30 rounded-lg" />
-                <div className="h-4 w-2/3 bg-card-border/30 rounded-lg" />
+              {/* 模拟文章内容 */}
+              <div className="pt-8 space-y-6">
+                <div className="space-y-3">
+                  <div className="h-4 w-full bg-card-border/25 rounded-lg" />
+                  <div className="h-4 w-full bg-card-border/25 rounded-lg" />
+                  <div className="h-4 w-3/4 bg-card-border/25 rounded-lg" />
+                </div>
+                <div className="h-7 w-48 bg-card-border/35 rounded-lg" />
+                <div className="space-y-3">
+                  <div className="h-4 w-full bg-card-border/25 rounded-lg" />
+                  <div className="h-4 w-5/6 bg-card-border/25 rounded-lg" />
+                  <div className="h-4 w-full bg-card-border/25 rounded-lg" />
+                  <div className="h-4 w-2/3 bg-card-border/25 rounded-lg" />
+                </div>
+                <div className="h-32 w-full bg-card-border/15 rounded-xl" />
+                <div className="space-y-3">
+                  <div className="h-4 w-full bg-card-border/25 rounded-lg" />
+                  <div className="h-4 w-4/5 bg-card-border/25 rounded-lg" />
+                  <div className="h-4 w-full bg-card-border/25 rounded-lg" />
+                </div>
               </div>
             </div>
           ) : (

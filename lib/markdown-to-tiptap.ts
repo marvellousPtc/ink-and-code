@@ -90,6 +90,36 @@ export function markdownToTiptap(markdown: string): string {
       continue;
     }
 
+    // 表格
+    if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
+      const tableRows: string[] = [line];
+      i++;
+      while (i < lines.length && lines[i].trim().startsWith('|') && lines[i].trim().endsWith('|')) {
+        tableRows.push(lines[i]);
+        i++;
+      }
+      
+      // 至少需要 2 行（表头 + 分隔行），分隔行形如 |---|---|
+      if (tableRows.length >= 2) {
+        const tableNode = parseMarkdownTable(tableRows);
+        if (tableNode) {
+          doc.content.push(tableNode);
+          continue;
+        }
+      }
+      
+      // 如果解析失败，回退按段落处理
+      for (const row of tableRows) {
+        if (row.trim()) {
+          doc.content.push({
+            type: 'paragraph',
+            content: parseInlineContent(row),
+          });
+        }
+      }
+      continue;
+    }
+
     // 无序列表
     if (/^[-*+]\s/.test(line)) {
       const listItems: TiptapNode[] = [];
@@ -173,8 +203,71 @@ function isBlockStart(line: string): boolean {
     line.startsWith('```') ||
     /^[-*+]\s/.test(line) ||
     /^\d+\.\s/.test(line) ||
-    /^[-*_]{3,}$/.test(line.trim())
+    /^[-*_]{3,}$/.test(line.trim()) ||
+    (line.trim().startsWith('|') && line.trim().endsWith('|'))
   );
+}
+
+/**
+ * 解析 Markdown 表格为 TipTap table 节点
+ */
+function parseMarkdownTable(rows: string[]): TiptapNode | null {
+  if (rows.length < 2) return null;
+
+  // 解析单元格内容：去掉首尾的 |，按 | 分割
+  const parseCells = (row: string): string[] => {
+    const trimmed = row.trim();
+    // 去掉首尾的 |
+    const inner = trimmed.startsWith('|') ? trimmed.slice(1) : trimmed;
+    const cleaned = inner.endsWith('|') ? inner.slice(0, -1) : inner;
+    return cleaned.split('|').map(cell => cell.trim());
+  };
+
+  const headerCells = parseCells(rows[0]);
+  
+  // 第二行应该是分隔行 |---|---|
+  const separatorCells = parseCells(rows[1]);
+  const isSeparator = separatorCells.every(cell => /^:?-+:?$/.test(cell.trim()));
+  
+  if (!isSeparator) return null;
+
+  const tableContent: TiptapNode[] = [];
+
+  // 表头行
+  const headerRow: TiptapNode = {
+    type: 'tableRow',
+    content: headerCells.map(cell => ({
+      type: 'tableHeader',
+      attrs: { colspan: 1, rowspan: 1 },
+      content: [{
+        type: 'paragraph',
+        content: parseInlineContent(cell),
+      }],
+    })),
+  };
+  tableContent.push(headerRow);
+
+  // 数据行（从第 3 行开始）
+  for (let r = 2; r < rows.length; r++) {
+    const cells = parseCells(rows[r]);
+    const dataRow: TiptapNode = {
+      type: 'tableRow',
+      content: cells.map(cell => ({
+        type: 'tableCell',
+        attrs: { colspan: 1, rowspan: 1 },
+        content: [{
+          type: 'paragraph',
+          content: parseInlineContent(cell),
+        }],
+      })),
+    };
+    tableContent.push(dataRow);
+  }
+
+  return {
+    type: 'table',
+    content: tableContent,
+  };
 }
 
 /**
