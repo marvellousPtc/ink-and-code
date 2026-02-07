@@ -3,7 +3,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import ePub, { type Book, type Rendition } from 'epubjs';
 import type { ReadingSettingsData } from '@/lib/hooks/use-library';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+// lucide-react icons removed - using invisible touch zones instead of visible buttons
 
 interface EpubReaderViewProps {
   url: string;
@@ -33,6 +33,7 @@ export default function EpubReaderView({
     const container = containerRef.current;
 
     let destroyed = false;
+    let locationsTimer: ReturnType<typeof setTimeout>;
 
     async function loadEpub() {
       try {
@@ -72,19 +73,21 @@ export default function EpubReaderView({
           rendition.display();
         }
 
-        // 生成位置信息（用于计算阅读百分比）
-        // 使用较大的 charsPerPage (2048) 减少计算量，加快生成速度
-        book.ready.then(() => {
-          return book.locations.generate(2048);
-        }).then(() => {
+        // 延迟生成位置信息，避免阻塞 UI（手机上很重要）
+        // 等书渲染完 2 秒后再跑，不影响首屏
+        locationsTimer = setTimeout(() => {
           if (destroyed) return;
-          // 位置生成后，刷新一次当前进度
-          const loc = rendition.currentLocation() as unknown as { start?: { cfi: string; percentage: number } };
-          if (loc?.start) {
-            const pct = Math.round((loc.start.percentage || 0) * 100);
-            onProgressUpdate?.(pct, loc.start.cfi);
-          }
-        });
+          book.ready.then(() => {
+            return book.locations.generate(2048);
+          }).then(() => {
+            if (destroyed) return;
+            const loc = rendition.currentLocation() as unknown as { start?: { cfi: string; percentage: number } };
+            if (loc?.start) {
+              const pct = Math.round((loc.start.percentage || 0) * 100);
+              onProgressUpdate?.(pct, loc.start.cfi);
+            }
+          });
+        }, 2000);
 
         // 键盘翻页
         const handleKeydown = (e: KeyboardEvent) => {
@@ -93,52 +96,8 @@ export default function EpubReaderView({
         };
         document.addEventListener('keydown', handleKeydown);
 
-        // 触摸滑动翻页 —— 通过 hooks.content 在每次内容加载时注册
-        // epubjs 每次翻页都会替换 iframe 内容，普通事件监听会失效
-        let touchStartX = 0;
-        let touchStartY = 0;
-        let touchStartTime = 0;
-
-        const handleTouchStart = (e: TouchEvent) => {
-          touchStartX = e.changedTouches[0].clientX;
-          touchStartY = e.changedTouches[0].clientY;
-          touchStartTime = Date.now();
-        };
-
-        const handleTouchEnd = (e: TouchEvent) => {
-          const dx = e.changedTouches[0].clientX - touchStartX;
-          const dy = e.changedTouches[0].clientY - touchStartY;
-          const dt = Date.now() - touchStartTime;
-
-          // 水平滑动距离 > 40px、大于垂直距离、时间 < 500ms
-          if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5 && dt < 500) {
-            if (dx > 0) {
-              rendition.prev();
-            } else {
-              rendition.next();
-            }
-          }
-        };
-
-        // 通过 hooks.content 在每次 iframe 内容加载时注册触摸事件
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        rendition.hooks.content.register((contents: any) => {
-          const doc = contents.document as Document;
-          if (doc) {
-            doc.addEventListener('touchstart', handleTouchStart, { passive: true });
-            doc.addEventListener('touchend', handleTouchEnd, { passive: true });
-          }
-        });
-
-        // 外层容器也注册一份（兜底）
-        container.addEventListener('touchstart', handleTouchStart, { passive: true });
-        container.addEventListener('touchend', handleTouchEnd, { passive: true });
-
-        // 清理函数
         const cleanup = () => {
           document.removeEventListener('keydown', handleKeydown);
-          container.removeEventListener('touchstart', handleTouchStart);
-          container.removeEventListener('touchend', handleTouchEnd);
         };
         (container as HTMLDivElement & { _cleanup?: () => void })._cleanup = cleanup;
       } catch (err) {
@@ -151,6 +110,7 @@ export default function EpubReaderView({
 
     return () => {
       destroyed = true;
+      clearTimeout(locationsTimer);
       (container as HTMLDivElement & { _cleanup?: () => void })?._cleanup?.();
       bookRef.current?.destroy();
       bookRef.current = null;
@@ -188,6 +148,34 @@ export default function EpubReaderView({
     renditionRef.current?.next();
   }, []);
 
+  // 触摸滑动翻页 —— 用透明触摸层覆盖在 epub 上方，不依赖 iframe 内事件
+  const touchRef = useRef<{ x: number; y: number; t: number } | null>(null);
+
+  const onTouchStart = useCallback((e: React.TouchEvent) => {
+    touchRef.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+      t: Date.now(),
+    };
+  }, []);
+
+  const onTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (!touchRef.current) return;
+    const dx = e.changedTouches[0].clientX - touchRef.current.x;
+    const dy = e.changedTouches[0].clientY - touchRef.current.y;
+    const dt = Date.now() - touchRef.current.t;
+    touchRef.current = null;
+
+    // 水平滑动 > 50px、大于垂直距离、时间 < 400ms
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.2 && dt < 400) {
+      if (dx > 0) {
+        renditionRef.current?.prev();
+      } else {
+        renditionRef.current?.next();
+      }
+    }
+  }, []);
+
   if (loadError) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -203,21 +191,26 @@ export default function EpubReaderView({
     <div className="relative w-full h-full">
       <div ref={containerRef} className="w-full h-full" />
 
+      {/* 透明触摸层：覆盖在 epub 上方捕获滑动手势，避免 iframe 事件问题 */}
       {isReady && (
-        <>
+        <div
+          className="absolute inset-0 z-10"
+          onTouchStart={onTouchStart}
+          onTouchEnd={onTouchEnd}
+          style={{ touchAction: 'pan-y' }}
+        >
+          {/* 左右点击翻页区域 */}
           <button
             onClick={handlePrev}
-            className="absolute left-0 top-0 bottom-0 w-16 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
-          >
-            <ChevronLeft className="w-6 h-6 opacity-40" />
-          </button>
+            className="absolute left-0 top-0 bottom-0 w-1/4"
+            aria-label="上一页"
+          />
           <button
             onClick={handleNext}
-            className="absolute right-0 top-0 bottom-0 w-16 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
-          >
-            <ChevronRight className="w-6 h-6 opacity-40" />
-          </button>
-        </>
+            className="absolute right-0 top-0 bottom-0 w-1/4"
+            aria-label="下一页"
+          />
+        </div>
       )}
 
       {!isReady && !loadError && (
