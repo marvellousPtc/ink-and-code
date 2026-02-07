@@ -126,7 +126,7 @@ export default function ReaderPage({ params }: ReaderPageProps) {
 
   // ---- 滑块变更（防抖：拖动时只更新显示值，释放后才触发保存 + 重排版） ----
   const [sliderOverrides, setSliderOverrides] = useState<Partial<ReadingSettingsData>>({});
-  const sliderTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const sliderTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // 合并后的设置（用于滑块显示值）
   const displaySettings = useMemo(() => {

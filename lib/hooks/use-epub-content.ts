@@ -281,7 +281,7 @@ export function useEpubContent(bookId: string): EpubContentResult {
                   }
                 }
 
-                const html = body.innerHTML;
+                const html = 'innerHTML' in body ? body.innerHTML : body.documentElement?.innerHTML ?? '';
                 if (html && html.trim().length > 0) {
                   extractedChapters.push({
                     html,

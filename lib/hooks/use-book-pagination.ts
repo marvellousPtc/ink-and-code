@@ -173,7 +173,7 @@ export function useBookPagination(
   }, [chapters, styles, fontSize, lineHeight, fontFamilyCss, pageContentWidth, pageContentHeight]);
 
   // 当内容或设置变化时重新分页（防抖 150ms，避免设置拖滑块时连续触发）
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
