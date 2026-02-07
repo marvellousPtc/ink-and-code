@@ -198,6 +198,57 @@ export default function EpubReaderView({
     return () => document.removeEventListener('keydown', handleKeydown);
   }, []);
 
+  // ---- 移动端：自定义触摸手势（点击翻页 + 更灵敏的滑动） ----
+  const touchRef = useRef<{ x: number; y: number; t: number } | null>(null);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (!isMobile) return;
+    const touch = e.touches[0];
+    touchRef.current = { x: touch.clientX, y: touch.clientY, t: Date.now() };
+  }, [isMobile]);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (!isMobile || !touchRef.current) return;
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - touchRef.current.x;
+    const dy = touch.clientY - touchRef.current.y;
+    const dt = Date.now() - touchRef.current.t;
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+    touchRef.current = null;
+
+    const pageFlip = flipBookRef.current?.pageFlip();
+    if (!pageFlip) return;
+
+    // 滑动翻页：水平距离 > 20px 且大于垂直距离，800ms 内完成
+    if (absDx > 20 && absDx > absDy * 0.8 && dt < 800) {
+      if (dx < 0) {
+        pageFlip.flipNext();
+      } else {
+        pageFlip.flipPrev();
+      }
+      return;
+    }
+
+    // 点击翻页：移动距离 < 15px 且时间 < 400ms
+    if (absDx < 15 && absDy < 15 && dt < 400) {
+      const screenW = containerSize.w;
+      const tapX = touch.clientX;
+
+      // 左侧 35% → 上一页，右侧 35% → 下一页，中间 30% → 不翻页（留给 toolbar toggle）
+      if (tapX < screenW * 0.35) {
+        e.preventDefault();
+        e.stopPropagation();
+        pageFlip.flipPrev();
+      } else if (tapX > screenW * 0.65) {
+        e.preventDefault();
+        e.stopPropagation();
+        pageFlip.flipNext();
+      }
+      // 中间区域的点击由父组件的 handleToggleToolbar 处理
+    }
+  }, [isMobile, containerSize.w]);
+
   // ---- 主题 ----
   const theme = settings?.theme || 'light';
   const themeClass =
@@ -309,6 +360,8 @@ export default function EpubReaderView({
             opacity: showBook ? 1 : 0,
             transition: 'opacity 0.3s ease-in',
           }}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
         >
           {!isMobile && <div className="book-shadow" />}
           {!isMobile && <div className="page-stack-left" />}
@@ -332,8 +385,8 @@ export default function EpubReaderView({
             drawShadow={!isMobile}
             maxShadowOpacity={isMobile ? 0.15 : 0.25}
             showPageCorners={!isMobile}
-            disableFlipByClick={false}
-            clickEventForward={true}
+            disableFlipByClick={isMobile}
+            clickEventForward={!isMobile}
             swipeDistance={isMobile ? 10 : 30}
             startPage={startPage}
             startZIndex={2}
