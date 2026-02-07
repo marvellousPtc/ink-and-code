@@ -1,9 +1,11 @@
 import { prisma } from '@/lib/prisma';
-import { requireAuth, success, ApiError } from '@/lib/api-response';
+import { getCurrentUserId, success, ApiError } from '@/lib/api-response';
 
 /**
  * GET /api/library/list
- * 获取用户书架列表
+ * 获取图书馆书籍列表（公开接口，无需登录）
+ * 
+ * 如果用户已登录，会附带该用户的阅读进度。
  * 
  * 查询参数：
  *   search: 搜索书名/作者
@@ -13,8 +15,7 @@ import { requireAuth, success, ApiError } from '@/lib/api-response';
  */
 export async function GET(request: Request) {
   try {
-    const { userId, error: authError } = await requireAuth();
-    if (authError) return authError;
+    const userId = await getCurrentUserId();
 
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search') || '';
@@ -22,8 +23,8 @@ export async function GET(request: Request) {
     const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
     const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') || '20')));
 
-    // 构建查询条件
-    const where: Record<string, unknown> = { userId: userId! };
+    // 构建查询条件 — 公开所有书籍
+    const where: Record<string, unknown> = {};
     if (search) {
       where.OR = [
         { title: { contains: search, mode: 'insensitive' } },
@@ -42,7 +43,6 @@ export async function GET(request: Request) {
         break;
       case 'recent':
       default:
-        // 按最近阅读排序需要关联查询，先用创建时间
         orderBy = { updatedAt: 'desc' };
         break;
     }
@@ -53,30 +53,53 @@ export async function GET(request: Request) {
         orderBy,
         skip: (page - 1) * limit,
         take: limit,
-        include: {
-          progress: {
-            select: {
-              percentage: true,
-              lastReadAt: true,
-              totalReadTime: true,
-            },
-          },
-        },
+        // 不 include progress（因为是一对多，需要按用户筛选）
       }),
       prisma.book.count({ where }),
     ]);
 
+    // 如果用户已登录，批量查询该用户在这些书上的进度
+    let progressMap: Record<string, { percentage: number; lastReadAt: Date; totalReadTime: number }> = {};
+    if (userId && books.length > 0) {
+      const bookIds = books.map(b => b.id);
+      const progressList = await prisma.readingProgress.findMany({
+        where: {
+          userId,
+          bookId: { in: bookIds },
+        },
+        select: {
+          bookId: true,
+          percentage: true,
+          lastReadAt: true,
+          totalReadTime: true,
+        },
+      });
+      progressMap = Object.fromEntries(
+        progressList.map(p => [p.bookId, {
+          percentage: p.percentage,
+          lastReadAt: p.lastReadAt,
+          totalReadTime: p.totalReadTime,
+        }])
+      );
+    }
+
+    // 组装结果
+    const booksWithProgress = books.map(book => ({
+      ...book,
+      progress: progressMap[book.id] || null,
+    }));
+
     // 如果按最近阅读排序，手动排序
     if (sort === 'recent') {
-      books.sort((a, b) => {
-        const aTime = a.progress?.lastReadAt?.getTime() || a.createdAt.getTime();
-        const bTime = b.progress?.lastReadAt?.getTime() || b.createdAt.getTime();
+      booksWithProgress.sort((a, b) => {
+        const aTime = a.progress?.lastReadAt?.getTime?.() || a.createdAt.getTime();
+        const bTime = b.progress?.lastReadAt?.getTime?.() || b.createdAt.getTime();
         return bTime - aTime;
       });
     }
 
     return success({
-      list: books,
+      list: booksWithProgress,
       pagination: {
         page,
         limit,
@@ -86,6 +109,6 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     console.error('Failed to list books:', error);
-    return ApiError.internal('获取书架列表失败');
+    return ApiError.internal('获取书籍列表失败');
   }
 }

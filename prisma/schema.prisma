@@ -254,7 +254,7 @@ model Book {
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
-  progress      ReadingProgress?
+  progress      ReadingProgress[]
   bookmarks     Bookmark[]
   highlights    Highlight[]
 
@@ -265,7 +265,7 @@ model Book {
 // 阅读进度
 model ReadingProgress {
   id              String   @id @default(cuid())
-  bookId          String   @unique @map("book_id")
+  bookId          String   @map("book_id")
   book            Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
   userId          String   @map("user_id")
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -279,6 +279,7 @@ model ReadingProgress {
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   @@unique([userId, bookId])
+  @@index([bookId])
   @@map("reading_progress")
 }
 

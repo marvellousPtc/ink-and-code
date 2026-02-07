@@ -134,8 +134,9 @@ export function useBookPagination(
         if (!contentEl) continue;
 
         // 测量页数：scrollWidth 除以 columnWidth
+        // 减去 2px 容差，避免子像素渲染差异导致多出空白页
         const scrollW = contentEl.scrollWidth;
-        const pageCount = Math.max(1, Math.ceil(scrollW / pageContentWidth));
+        const pageCount = Math.max(1, Math.ceil((scrollW - 2) / pageContentWidth));
 
         ranges.push({
           chapterIndex: i,
@@ -171,9 +172,16 @@ export function useBookPagination(
     }
   }, [chapters, styles, fontSize, lineHeight, fontFamilyCss, pageContentWidth, pageContentHeight]);
 
-  // 当内容或设置变化时重新分页
+  // 当内容或设置变化时重新分页（防抖 150ms，避免设置拖滑块时连续触发）
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   useEffect(() => {
-    paginate();
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      paginate();
+    }, 150);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   }, [paginate]);
 
   // 清理测量容器

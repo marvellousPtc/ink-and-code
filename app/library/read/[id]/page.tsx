@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useEffect, useState, useCallback, useRef } from 'react';
+import { use, useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft, BookOpen, List, Settings, Bookmark, Highlighter,
@@ -74,12 +74,12 @@ export default function ReaderPage({ params }: ReaderPageProps) {
         const delta = Math.floor((Date.now() - lastSaveRef.current) / 1000);
         navigator.sendBeacon(
           '/api/library/progress',
-          JSON.stringify({
+          new Blob([JSON.stringify({
             bookId: id,
             currentLocation,
             percentage,
             readTimeDelta: delta,
-          })
+          })], { type: 'application/json' })
         );
       }
     };
@@ -116,10 +116,48 @@ export default function ReaderPage({ params }: ReaderPageProps) {
     mutateHighlights();
   }, [id, addHighlight, mutateHighlights]);
 
+  // ---- 设置变更（按钮类：立即生效） ----
   const handleSettingsChange = useCallback(async (key: string, value: number | string) => {
+    // 乐观更新 SWR 缓存，立即反映到 UI
+    mutateSettings((prev: ReadingSettingsData | undefined) => prev ? { ...prev, [key]: value } : prev, false);
     await saveSettings({ [key]: value } as Partial<ReadingSettingsData>);
     mutateSettings();
   }, [saveSettings, mutateSettings]);
+
+  // ---- 滑块变更（防抖：拖动时只更新显示值，释放后才触发保存 + 重排版） ----
+  const [sliderOverrides, setSliderOverrides] = useState<Partial<ReadingSettingsData>>({});
+  const sliderTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // 合并后的设置（用于滑块显示值）
+  const displaySettings = useMemo(() => {
+    if (!settings) return null;
+    return { ...settings, ...sliderOverrides } as ReadingSettingsData;
+  }, [settings, sliderOverrides]);
+
+  // 传给 reader 的设置（只在防抖结束后才更新，避免拖滑块时不停重排版）
+  const readerSettings = settings;
+
+  const handleSliderChange = useCallback((key: string, value: number | string) => {
+    // 立即更新滑块显示值
+    setSliderOverrides(prev => ({ ...prev, [key]: value }));
+
+    // 防抖：500ms 后才保存到服务器并更新 reader
+    if (sliderTimerRef.current) clearTimeout(sliderTimerRef.current);
+    sliderTimerRef.current = setTimeout(async () => {
+      setSliderOverrides({});
+      // 乐观更新 SWR 缓存
+      mutateSettings((prev: ReadingSettingsData | undefined) => prev ? { ...prev, [key]: value } : prev, false);
+      await saveSettings({ [key]: value } as Partial<ReadingSettingsData>);
+      mutateSettings();
+    }, 500);
+  }, [saveSettings, mutateSettings]);
+
+  // 清理防抖定时器
+  useEffect(() => {
+    return () => {
+      if (sliderTimerRef.current) clearTimeout(sliderTimerRef.current);
+    };
+  }, []);
 
   if (isLoading) {
     return (
@@ -181,7 +219,7 @@ export default function ReaderPage({ params }: ReaderPageProps) {
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <span className="text-sm font-medium truncate max-w-[200px] sm:max-w-md">
+          <span className="text-sm font-medium truncate max-w-[120px] sm:max-w-md">
             {book.title}
           </span>
         </div>
@@ -246,7 +284,7 @@ export default function ReaderPage({ params }: ReaderPageProps) {
               url={directUrl}
               bookId={id}
               initialLocation={book.progress?.currentLocation || undefined}
-              settings={settings}
+              settings={readerSettings}
               onProgressUpdate={handleProgressUpdate}
               onAddBookmark={handleAddBookmark}
               onAddHighlight={handleAddHighlight}
@@ -257,7 +295,7 @@ export default function ReaderPage({ params }: ReaderPageProps) {
               url={directUrl}
               bookId={id}
               initialPage={book.progress?.currentLocation ? parseInt(book.progress.currentLocation) : undefined}
-              settings={settings}
+              settings={readerSettings}
               onProgressUpdate={handleProgressUpdate}
             />
           )}
@@ -266,22 +304,33 @@ export default function ReaderPage({ params }: ReaderPageProps) {
               url={proxyUrl}
               format={format}
               initialScrollPercent={book.progress?.percentage}
-              settings={settings}
+              settings={readerSettings}
               onProgressUpdate={handleProgressUpdate}
             />
           )}
         </div>
 
-        {/* 侧边栏 */}
+        {/* 侧边栏 — 移动端全屏覆盖，桌面端侧栏 */}
         {showSidebar && (
-          <div
-            className={`w-72 sm:w-80 border-l shrink-0 flex flex-col overflow-hidden ${
-              readerTheme === 'dark' ? 'bg-[#1e1e1e] border-[#333]' :
-              readerTheme === 'sepia' ? 'bg-[#ede0c8] border-[#d4c5a9]' :
-              'bg-gray-50 border-gray-200'
-            }`}
-            onClick={(e) => e.stopPropagation()}
-          >
+          <>
+            {/* 移动端遮罩层 */}
+            <div
+              className="fixed inset-0 bg-black/40 z-40 sm:hidden"
+              onClick={() => setShowSidebar(null)}
+            />
+            <div
+              className={`
+                fixed inset-y-0 right-0 w-[85vw] max-w-80 z-50
+                sm:relative sm:inset-auto sm:w-80 sm:z-auto
+                border-l shrink-0 flex flex-col overflow-hidden
+                ${
+                  readerTheme === 'dark' ? 'bg-[#1e1e1e] border-[#333]' :
+                  readerTheme === 'sepia' ? 'bg-[#ede0c8] border-[#d4c5a9]' :
+                  'bg-gray-50 border-gray-200'
+                }
+              `}
+              onClick={(e) => e.stopPropagation()}
+            >
             <div className="flex items-center justify-between px-4 py-3 border-b border-inherit">
               <span className="text-sm font-bold">
                 {showSidebar === 'toc' && '目录'}
@@ -353,7 +402,7 @@ export default function ReaderPage({ params }: ReaderPageProps) {
                 </div>
               )}
 
-              {showSidebar === 'settings' && settings && (
+              {showSidebar === 'settings' && displaySettings && (
                 <div className="space-y-6">
                   {/* 主题 */}
                   <div>
@@ -368,7 +417,7 @@ export default function ReaderPage({ params }: ReaderPageProps) {
                           key={value}
                           onClick={() => handleSettingsChange('theme', value)}
                           className={`flex-1 py-2 rounded-lg text-xs font-medium border-2 transition-all ${bg} ${
-                            settings.theme === value ? 'ring-2 ring-primary ring-offset-1' : ''
+                            displaySettings.theme === value ? 'ring-2 ring-primary ring-offset-1' : ''
                           }`}
                         >
                           <span className={value === 'dark' ? 'text-gray-300' : value === 'sepia' ? 'text-[#5b4636]' : 'text-gray-700'}>
@@ -379,54 +428,54 @@ export default function ReaderPage({ params }: ReaderPageProps) {
                     </div>
                   </div>
 
-                  {/* 字号 */}
+                  {/* 字号 — 用防抖滑块 */}
                   <div>
                     <label className="text-xs font-bold uppercase tracking-wider opacity-50 mb-3 block">
-                      字号: {settings.fontSize}px
+                      字号: {displaySettings.fontSize}px
                     </label>
                     <input
                       type="range"
                       min="12"
                       max="28"
-                      value={settings.fontSize}
-                      onChange={(e) => handleSettingsChange('fontSize', parseInt(e.target.value))}
+                      value={displaySettings.fontSize}
+                      onChange={(e) => handleSliderChange('fontSize', parseInt(e.target.value))}
                       className="w-full accent-primary"
                     />
                   </div>
 
-                  {/* 行高 */}
+                  {/* 行高 — 用防抖滑块 */}
                   <div>
                     <label className="text-xs font-bold uppercase tracking-wider opacity-50 mb-3 block">
-                      行高: {settings.lineHeight}
+                      行高: {displaySettings.lineHeight}
                     </label>
                     <input
                       type="range"
                       min="1.2"
                       max="2.4"
                       step="0.1"
-                      value={settings.lineHeight}
-                      onChange={(e) => handleSettingsChange('lineHeight', parseFloat(e.target.value))}
+                      value={displaySettings.lineHeight}
+                      onChange={(e) => handleSliderChange('lineHeight', parseFloat(e.target.value))}
                       className="w-full accent-primary"
                     />
                   </div>
 
-                  {/* 页面宽度 */}
-                  <div>
+                  {/* 页面宽度 — 用防抖滑块（移动端隐藏，因为单页全宽） */}
+                  <div className="hidden sm:block">
                     <label className="text-xs font-bold uppercase tracking-wider opacity-50 mb-3 block">
-                      页宽: {settings.pageWidth}px
+                      页宽: {displaySettings.pageWidth}px
                     </label>
                     <input
                       type="range"
                       min="500"
                       max="1200"
                       step="50"
-                      value={settings.pageWidth}
-                      onChange={(e) => handleSettingsChange('pageWidth', parseInt(e.target.value))}
+                      value={displaySettings.pageWidth}
+                      onChange={(e) => handleSliderChange('pageWidth', parseInt(e.target.value))}
                       className="w-full accent-primary"
                     />
                   </div>
 
-                  {/* 字体 */}
+                  {/* 字体 — 按钮类立即生效 */}
                   <div>
                     <label className="text-xs font-bold uppercase tracking-wider opacity-50 mb-3 block">字体</label>
                     <div className="grid grid-cols-2 gap-2">
@@ -440,7 +489,7 @@ export default function ReaderPage({ params }: ReaderPageProps) {
                           key={value}
                           onClick={() => handleSettingsChange('fontFamily', value)}
                           className={`py-2 px-3 rounded-lg text-xs font-medium border transition-all ${
-                            settings.fontFamily === value
+                            displaySettings.fontFamily === value
                               ? 'border-primary bg-primary/10 text-primary'
                               : 'border-black/10 hover:border-black/20'
                           }`}
@@ -460,6 +509,7 @@ export default function ReaderPage({ params }: ReaderPageProps) {
               )}
             </div>
           </div>
+          </>
         )}
       </div>
 

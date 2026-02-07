@@ -1,9 +1,11 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import useSWR from 'swr';
 import useSWRMutation from 'swr/mutation';
 import { fetcher, post } from '@/lib/fetcher';
+import { getLibraryRole } from '@/lib/actions/library-role';
+import type { LibraryRoleResult } from '@/lib/actions/library-role';
 
 /**
  * Book 类型
@@ -79,6 +81,44 @@ export interface BookListData {
     limit: number;
     total: number;
     totalPages: number;
+  };
+}
+
+/**
+ * 图书馆角色
+ */
+export type LibraryRole = LibraryRoleResult;
+
+/**
+ * 获取当前用户在图书馆中的角色和权限
+ * 
+ * 使用 Server Action 而非 API 路由，避免被中间件代理拦截。
+ * Server Action 走 Next.js 内部通道，可以正确读取本地 session。
+ */
+export function useLibraryRole() {
+  const [data, setData] = useState<LibraryRoleResult | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    getLibraryRole().then((result) => {
+      if (!cancelled) {
+        setData(result);
+        setIsLoading(false);
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setIsLoading(false);
+      }
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  return {
+    role: data?.role || 'guest',
+    canUpload: data?.canUpload || false,
+    canDelete: data?.canDelete || false,
+    isLoading,
   };
 }
 

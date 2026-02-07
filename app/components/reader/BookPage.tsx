@@ -1,44 +1,45 @@
 import React, { useMemo } from 'react';
 
 interface BookPageProps {
-  /** 全局页码（0-based） */
   pageIndex: number;
-  /** 当前正在查看的页码（用于懒渲染判断） */
-  currentPage: number;
-  /** 所属章节的 HTML 内容 */
-  chapterHtml: string;
-  /** EPUB 提取的 CSS 样式 */
-  epubStyles: string;
-  /** 页面在章节内的偏移（0-based） */
+  chapterHtml: string;        // 空字符串 = 远离当前页，渲染空白占位
   pageInChapter: number;
-  /** 内容区域宽度（不含 padding） */
   pageWidth: number;
-  /** 内容区域高度（不含 padding 和页码） */
   pageHeight: number;
-  /** 显示的页码（1-based） */
   pageNumber: number;
-  /** 总页数 */
   totalPages: number;
-  /** 排版设置 */
   fontSize: number;
   lineHeight: number;
   fontFamily: string;
-  /** 主题 */
   theme: string;
+  padding: number;            // 页面内边距（移动端更小）
 }
+
+const THEME_MAP: Record<string, { pageNumColor: string }> = {
+  dark:  { pageNumColor: 'rgba(200,192,184,0.4)' },
+  sepia: { pageNumColor: 'rgba(91,70,54,0.35)' },
+  light: { pageNumColor: 'rgba(0,0,0,0.3)' },
+};
+
+const FONT_MAP: Record<string, string> = {
+  serif: 'Georgia, "Times New Roman", serif',
+  'sans-serif': '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  mono: '"SF Mono", "Fira Code", monospace',
+  system: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+};
 
 /**
  * 翻页书的单页组件
- * 使用 CSS 多列布局 + translateX 定位到正确的内容列
- * 必须使用 forwardRef（react-pageflip 要求）
+ *
+ * 性能优化：
+ * - currentPage 不再作为 prop 传入，避免翻页时 2000+ 个组件的 memo 对比开销
+ * - 懒渲染由父组件控制：chapterHtml 为空 → 渲染空白占位
+ * - backgroundColor / color / overflow 通过 CSS class 设置（page-flip 不会覆盖）
  */
 const BookPage = React.forwardRef<HTMLDivElement, BookPageProps>(
   (
     {
-      pageIndex,
-      currentPage,
       chapterHtml,
-      epubStyles,
       pageInChapter,
       pageWidth,
       pageHeight,
@@ -48,46 +49,29 @@ const BookPage = React.forwardRef<HTMLDivElement, BookPageProps>(
       lineHeight,
       fontFamily,
       theme,
+      padding,
     },
     ref,
   ) => {
-    // 懒渲染：只渲染当前页附近 ±4 页的内容
-    const isNearCurrent = Math.abs(pageIndex - currentPage) <= 4;
+    const themeColors = THEME_MAP[theme] || THEME_MAP.light;
+    const fontFamilyCss = FONT_MAP[fontFamily] || FONT_MAP.system;
 
-    // 主题色
-    const themeColors = useMemo(() => {
-      switch (theme) {
-        case 'dark':
-          return {
-            bg: '#2a2520',
-            text: '#c8c0b8',
-            pageNumColor: 'rgba(200,192,184,0.4)',
-            borderColor: 'rgba(255,255,255,0.04)',
-          };
-        case 'sepia':
-          return {
-            bg: '#f4ecd8',
-            text: '#5b4636',
-            pageNumColor: 'rgba(91,70,54,0.35)',
-            borderColor: 'rgba(0,0,0,0.06)',
-          };
-        default:
-          return {
-            bg: '#f8f5f0',
-            text: '#333',
-            pageNumColor: 'rgba(0,0,0,0.3)',
-            borderColor: 'rgba(0,0,0,0.06)',
-          };
-      }
-    }, [theme]);
+    const translateX = pageInChapter * pageWidth;
 
-    const fontFamilyCss =
-      fontFamily === 'serif' ? 'Georgia, "Times New Roman", serif' :
-      fontFamily === 'sans-serif' ? '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' :
-      fontFamily === 'mono' ? '"SF Mono", "Fira Code", monospace' :
-      '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
-
-    const padding = 40;
+    // 内容样式：极宽容器 + CSS 多列 + translateX 定位
+    const contentStyle = useMemo(() => ({
+      width: `${pageWidth * 200}px`,
+      columnWidth: `${pageWidth}px`,
+      columnGap: '0px',
+      columnFill: 'auto' as const,
+      height: `${pageHeight}px`,
+      fontSize: `${fontSize}px`,
+      lineHeight,
+      fontFamily: fontFamilyCss,
+      wordWrap: 'break-word' as const,
+      overflowWrap: 'break-word' as const,
+      transform: translateX > 0 ? `translateX(-${translateX}px)` : undefined,
+    }), [pageWidth, pageHeight, fontSize, lineHeight, fontFamilyCss, translateX]);
 
     return (
       <div
@@ -96,15 +80,10 @@ const BookPage = React.forwardRef<HTMLDivElement, BookPageProps>(
         style={{
           width: pageWidth + padding * 2,
           height: pageHeight + padding * 2 + 30,
-          backgroundColor: themeColors.bg,
-          color: themeColors.text,
           position: 'relative',
-          overflow: 'hidden',
-          boxSizing: 'border-box',
         }}
       >
-        {/* 页面内容区域 */}
-        {isNearCurrent && chapterHtml ? (
+        {chapterHtml ? (
           <div
             style={{
               position: 'absolute',
@@ -113,55 +92,15 @@ const BookPage = React.forwardRef<HTMLDivElement, BookPageProps>(
               width: pageWidth,
               height: pageHeight,
               overflow: 'hidden',
-              contain: 'strict',
             }}
           >
-            {/* EPUB 样式 */}
-            <style dangerouslySetInnerHTML={{ __html: `
-              .epub-page-content * {
-                max-width: 100% !important;
-                box-sizing: border-box !important;
-              }
-              .epub-page-content img {
-                max-width: 100% !important;
-                height: auto !important;
-                object-fit: contain !important;
-              }
-              .epub-page-content a {
-                color: inherit !important;
-                text-decoration: underline;
-              }
-              .epub-page-content h1, .epub-page-content h2, .epub-page-content h3 {
-                margin-top: 0.5em;
-                margin-bottom: 0.3em;
-              }
-              .epub-page-content p {
-                margin: 0.5em 0;
-              }
-              ${epubStyles}
-            ` }} />
-
-            {/* 章节内容 - CSS 多列布局 */}
             <div
               className="epub-page-content"
-              style={{
-                columnWidth: `${pageWidth}px`,
-                columnGap: 0,
-                columnFill: 'auto' as const,
-                height: `${pageHeight}px`,
-                overflow: 'hidden',
-                fontSize: `${fontSize}px`,
-                lineHeight: lineHeight,
-                fontFamily: fontFamilyCss,
-                wordWrap: 'break-word',
-                overflowWrap: 'break-word',
-                transform: `translateX(-${pageInChapter * pageWidth}px)`,
-              }}
+              style={contentStyle}
               dangerouslySetInnerHTML={{ __html: chapterHtml }}
             />
           </div>
         ) : (
-          /* 占位页面（远离当前页时不渲染内容） */
           <div
             style={{
               position: 'absolute',
@@ -177,11 +116,11 @@ const BookPage = React.forwardRef<HTMLDivElement, BookPageProps>(
         <div
           style={{
             position: 'absolute',
-            bottom: 12,
+            bottom: padding > 24 ? 12 : 6,
             left: 0,
             right: 0,
             textAlign: 'center',
-            fontSize: '11px',
+            fontSize: padding > 24 ? '11px' : '10px',
             fontFamily: 'Georgia, "Times New Roman", serif',
             color: themeColors.pageNumColor,
             letterSpacing: '0.5px',
@@ -197,4 +136,23 @@ const BookPage = React.forwardRef<HTMLDivElement, BookPageProps>(
 
 BookPage.displayName = 'BookPage';
 
-export default BookPage;
+/**
+ * React.memo 自定义比较：
+ * 不再比较 currentPage（已从 props 中移除），大幅减少翻页时的比较开销。
+ * 父组件通过 chapterHtml 是否为空来控制懒渲染，这里只需比较 chapterHtml 引用。
+ */
+export default React.memo(BookPage, (prev, next) => {
+  // 快速路径：chapterHtml 引用不变 → 跳过内容渲染比较
+  if (prev.chapterHtml !== next.chapterHtml) return false;
+  if (prev.pageIndex !== next.pageIndex) return false;
+  if (prev.pageWidth !== next.pageWidth) return false;
+  if (prev.pageHeight !== next.pageHeight) return false;
+  if (prev.fontSize !== next.fontSize) return false;
+  if (prev.lineHeight !== next.lineHeight) return false;
+  if (prev.fontFamily !== next.fontFamily) return false;
+  if (prev.theme !== next.theme) return false;
+  if (prev.totalPages !== next.totalPages) return false;
+  if (prev.pageInChapter !== next.pageInChapter) return false;
+  if (prev.padding !== next.padding) return false;
+  return true;
+});

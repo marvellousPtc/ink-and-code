@@ -3,7 +3,7 @@ import { requireAuth, success, ApiError } from '@/lib/api-response';
 
 /**
  * GET /api/library/progress?bookId=xxx
- * 获取阅读进度
+ * 获取当前用户的阅读进度
  */
 export async function GET(request: Request) {
   try {
@@ -34,6 +34,8 @@ export async function GET(request: Request) {
  * POST /api/library/progress
  * 保存阅读进度（upsert）
  * 
+ * 每个用户有独立的阅读进度，不要求是书籍拥有者。
+ * 
  * Body: {
  *   bookId: string;
  *   currentLocation?: string;
@@ -53,9 +55,10 @@ export async function POST(request: Request) {
       return ApiError.badRequest('缺少 bookId');
     }
 
-    // 验证书籍所有权
-    const book = await prisma.book.findFirst({
-      where: { id: bookId, userId: userId! },
+    // 验证书籍存在（不验证所有权，任何登录用户都可以保存进度）
+    const book = await prisma.book.findUnique({
+      where: { id: bookId },
+      select: { id: true },
     });
     if (!book) {
       return ApiError.notFound('书籍不存在');

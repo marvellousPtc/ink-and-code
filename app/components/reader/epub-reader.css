@@ -114,16 +114,43 @@
   overflow: visible;
 }
 
-/* 页面本身的微妙效果 */
+/* 页面本身
+ *
+ * 关键：这些样式必须通过 CSS class 设置，而不是 inline style。
+ * 原因：page-flip 库在翻页动画中会用 style.cssText = "..." 完全替换
+ * 页面元素的 inline style，导致 backgroundColor、overflow 等丢失。
+ * CSS class 的属性不会被 style.cssText 覆盖（只要 inline 中没设同名属性）。
+ */
 .book-page {
-  /* 纸张纹理 — 通过极微弱的噪点渐变模拟 */
+  /* 纸张背景色 — 不能用 inline style，否则翻页时丢失导致透明 */
+  background-color: #f8f5f0;
+  color: #333;
+  overflow: hidden;
+  box-sizing: border-box;
+
+  /* 性能优化：告诉浏览器每页内容独立，不影响其他元素布局 */
+  contain: layout style paint;
+
+  /* 纸张纹理 */
   background-image:
     linear-gradient(
       135deg,
       rgba(0, 0, 0, 0.008) 0%,
-      transparent 50%,
+      rgba(0, 0, 0, 0.003) 50%,
       rgba(0, 0, 0, 0.005) 100%
     );
+}
+
+/* 深色主题页面 */
+.book-theme-dark .book-page {
+  background-color: #2a2520;
+  color: #c8c0b8;
+}
+
+/* 羊皮纸主题页面 */
+.book-theme-sepia .book-page {
+  background-color: #f4ecd8;
+  color: #5b4636;
 }
 
 /* ---- 主题变体 ---- */
@@ -217,14 +244,35 @@
 }
 
 /* ---- 移动端单页模式 ---- */
+@media (max-width: 767px) {
+  .book-container {
+    padding: 0;
+  }
+
+  .book-frame {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* 移动端翻页容器全宽 */
+  .book-flipbook {
+    border-radius: 0;
+  }
+
+  /* 移动端页面去掉纸张纹理 */
+  .book-page {
+    background-image: none;
+    border-radius: 0;
+  }
+}
+
 .book-spine-hidden {
   display: none;
 }
 
 /* ---- 翻页时的附加视觉效果 ---- */
 
-/* react-pageflip 自带的阴影已经足够，这里做微调 */
+/* react-pageflip 翻页优化 — 不要覆盖库自身的 transform/backface 管理 */
 .stf__wrapper {
-  /* 让 react-pageflip 的翻页阴影更柔和 */
   --shadow-color: rgba(0, 0, 0, 0.15);
 }
