@@ -193,8 +193,9 @@ export default function EpubReaderView({
     return () => document.removeEventListener('keydown', handleKeydown);
   }, []);
 
-  // ---- 移动端：滑动 + 点击翻页手势 ----
-  // 库的 singlePage 原生支持滑动，这里补充更灵敏的滑动检测和点击翻页。
+  // ---- 移动端：点击翻页手势 ----
+  // 滑动翻页由 react-pageflip-enhanced 库原生处理（swipeDistance 参数控制灵敏度），
+  // 这里只补充点击翻页：左侧 35% 区域点击上一页，右侧 35% 区域点击下一页。
   const touchStartRef = useRef<{ x: number; y: number; t: number } | null>(null);
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
@@ -213,21 +214,12 @@ export default function EpubReaderView({
     const absDy = Math.abs(dy);
     touchStartRef.current = null;
 
-    const pageFlip = flipBookRef.current?.pageFlip();
-    if (!pageFlip) return;
-
-    // 滑动翻页：水平 > 20px，主要水平方向，800ms 内
-    if (absDx > 20 && absDx > absDy * 0.8 && dt < 800) {
-      if (dx < 0) {
-        pageFlip.flipNext();
-      } else {
-        pageFlip.flipPrev();
-      }
-      return;
-    }
-
-    // 点击翻页：几乎没移动，时间短
+    // 滑动翻页由 react-pageflip-enhanced 库内部处理，这里不再重复触发，
+    // 只处理「点击翻页」：几乎没移动，时间短
     if (absDx < 10 && absDy < 10 && dt < 300) {
+      const pageFlip = flipBookRef.current?.pageFlip();
+      if (!pageFlip) return;
+
       const tapX = touch.clientX;
       if (tapX < containerSize.w * 0.35) {
         pageFlip.flipPrev();
