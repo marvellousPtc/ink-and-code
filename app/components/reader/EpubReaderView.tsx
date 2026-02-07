@@ -30,6 +30,7 @@ export default function EpubReaderView({
   // 通过代理 API 加载 EPUB，然后用 epubjs 渲染
   useEffect(() => {
     if (!containerRef.current) return;
+    const container = containerRef.current;
 
     let destroyed = false;
 
@@ -45,11 +46,12 @@ export default function EpubReaderView({
         const book = ePub(data as unknown as string);
         bookRef.current = book;
 
-        const rendition = book.renderTo(containerRef.current!, {
+        const rendition = book.renderTo(container, {
           width: '100%',
           height: '100%',
           spread: 'none',
           flow: 'paginated',
+          allowScriptedContent: false,
         });
 
         renditionRef.current = rendition;
@@ -70,9 +72,10 @@ export default function EpubReaderView({
           rendition.display();
         }
 
-        // 生成位置信息（用于计算阅读百分比，不调用的话 percentage 始终为 0）
+        // 生成位置信息（用于计算阅读百分比）
+        // 使用较大的 charsPerPage (2048) 减少计算量，加快生成速度
         book.ready.then(() => {
-          return book.locations.generate(1024);
+          return book.locations.generate(2048);
         }).then(() => {
           if (destroyed) return;
           // 位置生成后，刷新一次当前进度
@@ -90,12 +93,59 @@ export default function EpubReaderView({
         };
         document.addEventListener('keydown', handleKeydown);
 
-        // 清理函数中移除事件
+        // 触摸滑动翻页
+        let touchStartX = 0;
+        let touchStartY = 0;
+        let touchStartTime = 0;
+
+        const handleTouchStart = (e: TouchEvent) => {
+          touchStartX = e.changedTouches[0].clientX;
+          touchStartY = e.changedTouches[0].clientY;
+          touchStartTime = Date.now();
+        };
+
+        const handleTouchEnd = (e: TouchEvent) => {
+          const dx = e.changedTouches[0].clientX - touchStartX;
+          const dy = e.changedTouches[0].clientY - touchStartY;
+          const dt = Date.now() - touchStartTime;
+
+          // 水平滑动距离 > 40px、大于垂直距离、时间 < 500ms
+          if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5 && dt < 500) {
+            if (dx > 0) {
+              rendition.prev();
+            } else {
+              rendition.next();
+            }
+          }
+        };
+
+        // 在 epubjs iframe 内部注册触摸事件
+        rendition.on('rendered', () => {
+          const iframe = container.querySelector('iframe');
+          const iframeDoc = iframe?.contentDocument;
+          if (iframeDoc) {
+            iframeDoc.addEventListener('touchstart', handleTouchStart, { passive: true });
+            iframeDoc.addEventListener('touchend', handleTouchEnd, { passive: true });
+          }
+        });
+
+        // 外层容器也注册一份（兜底）
+        container.addEventListener('touchstart', handleTouchStart, { passive: true });
+        container.addEventListener('touchend', handleTouchEnd, { passive: true });
+
+        // 清理函数
         const cleanup = () => {
           document.removeEventListener('keydown', handleKeydown);
+          const iframe = container.querySelector('iframe');
+          const iframeDoc = iframe?.contentDocument;
+          if (iframeDoc) {
+            iframeDoc.removeEventListener('touchstart', handleTouchStart);
+            iframeDoc.removeEventListener('touchend', handleTouchEnd);
+          }
+          container.removeEventListener('touchstart', handleTouchStart);
+          container.removeEventListener('touchend', handleTouchEnd);
         };
-        // 存到 ref 以便清理
-        (containerRef.current as HTMLDivElement & { _cleanup?: () => void })._cleanup = cleanup;
+        (container as HTMLDivElement & { _cleanup?: () => void })._cleanup = cleanup;
       } catch (err) {
         console.error('Failed to load EPUB:', err);
         if (!destroyed) setLoadError(err instanceof Error ? err.message : '加载失败');
@@ -106,8 +156,7 @@ export default function EpubReaderView({
 
     return () => {
       destroyed = true;
-      const el = containerRef.current as HTMLDivElement & { _cleanup?: () => void } | null;
-      el?._cleanup?.();
+      (container as HTMLDivElement & { _cleanup?: () => void })?._cleanup?.();
       bookRef.current?.destroy();
       bookRef.current = null;
       renditionRef.current = null;
