@@ -29,7 +29,7 @@ export default function EpubReaderView({
 
   const animatingRef = useRef(false);
 
-  // 3D 翻书动画
+  // 掀页角翻页动画：右下角轻轻掀起
   const animatePageTurn = useCallback((direction: 'prev' | 'next') => {
     const rendition = renditionRef.current;
     const wrapper = wrapperRef.current;
@@ -37,33 +37,26 @@ export default function EpubReaderView({
 
     animatingRef.current = true;
 
-    // 翻页方向：下一页从右边掀开（像翻书），上一页从左边翻回来
-    const exitOrigin = direction === 'next' ? 'left center' : 'right center';
-    const exitRotate = direction === 'next' ? 'rotateY(-100deg)' : 'rotateY(100deg)';
-    const enterOrigin = direction === 'next' ? 'right center' : 'left center';
-    const enterRotate = direction === 'next' ? 'rotateY(70deg)' : 'rotateY(-70deg)';
-
-    // 翻出：当前页绕左/右边缘旋转离开
-    wrapper.style.transformOrigin = exitOrigin;
-    wrapper.style.transition = 'transform 350ms ease-in, opacity 300ms ease-in';
-    wrapper.style.transform = exitRotate;
-    wrapper.style.opacity = '0';
+    // 掀起页角：绕底边做小幅度 rotateX，配合轻微位移
+    const origin = direction === 'next' ? 'bottom right' : 'bottom left';
+    wrapper.style.transformOrigin = origin;
+    wrapper.style.transition = 'transform 280ms ease-in-out, opacity 250ms ease-in';
+    wrapper.style.transform = 'rotateX(4deg) scale(0.97)';
+    wrapper.style.opacity = '0.4';
 
     setTimeout(() => {
-      // 切换内容
       if (direction === 'next') rendition.next();
       else rendition.prev();
 
-      // 翻入：新页从反方向旋转进入
+      // 新页轻微抬起后落下
       wrapper.style.transition = 'none';
-      wrapper.style.transformOrigin = enterOrigin;
-      wrapper.style.transform = enterRotate;
-      wrapper.style.opacity = '0';
+      wrapper.style.transform = 'rotateX(-3deg) scale(0.98)';
+      wrapper.style.opacity = '0.5';
 
       void wrapper.offsetHeight;
 
-      wrapper.style.transition = 'transform 300ms ease-out, opacity 200ms ease-out';
-      wrapper.style.transform = 'rotateY(0deg)';
+      wrapper.style.transition = 'transform 250ms ease-out, opacity 200ms ease-out';
+      wrapper.style.transform = 'rotateX(0deg) scale(1)';
       wrapper.style.opacity = '1';
 
       setTimeout(() => {
@@ -72,8 +65,8 @@ export default function EpubReaderView({
         wrapper.style.transform = '';
         wrapper.style.opacity = '';
         wrapper.style.transformOrigin = '';
-      }, 310);
-    }, 350);
+      }, 260);
+    }, 280);
   }, []);
 
   // 加载 EPUB
@@ -202,8 +195,9 @@ export default function EpubReaderView({
     });
   }, [settings?.fontSize, settings?.lineHeight, settings?.fontFamily, settings]);
 
-  // --- 触摸手势：跟手 3D 翻书 ---
+  // --- 触摸手势：掀页角翻页 ---
   const touchRef = useRef<{ x: number; y: number; t: number; moved: boolean } | null>(null);
+  const didPageTurnRef = useRef(false); // 标记最近一次 touch 是否触发了翻页
 
   const onTouchStart = useCallback((e: React.TouchEvent) => {
     if (animatingRef.current) return;
@@ -228,23 +222,16 @@ export default function EpubReaderView({
     }
 
     if (touchRef.current.moved) {
-      // 跟手 3D 旋转：手指位移映射到 rotateY 角度
+      // 跟手掀页角：小幅度 rotateX + 轻微缩放，像掀开一角
       const screenWidth = window.innerWidth;
-      // 最大旋转 90 度，映射拖动距离
-      const angle = (dx / screenWidth) * 90;
-      const clampedAngle = Math.max(-90, Math.min(90, angle));
+      const ratio = Math.min(1, Math.abs(dx) / (screenWidth * 0.4));
+      const rotateX = ratio * 5; // 最多掀 5 度
+      const scaleVal = 1 - ratio * 0.04; // 最多缩到 0.96
+      const opacity = 1 - ratio * 0.5;
 
-      // 下一页：向左滑，从左边缘旋转；上一页：向右滑，从右边缘旋转
       wrapper.style.transition = 'none';
-      if (dx < 0) {
-        // 向左滑 → 下一页预览
-        wrapper.style.transformOrigin = 'left center';
-      } else {
-        // 向右滑 → 上一页预览
-        wrapper.style.transformOrigin = 'right center';
-      }
-      wrapper.style.transform = `rotateY(${clampedAngle}deg)`;
-      const opacity = Math.max(0.3, 1 - Math.abs(clampedAngle) / 120);
+      wrapper.style.transformOrigin = dx < 0 ? 'bottom right' : 'bottom left';
+      wrapper.style.transform = `rotateX(${rotateX}deg) scale(${scaleVal})`;
       wrapper.style.opacity = String(opacity);
     }
   }, []);
@@ -264,8 +251,10 @@ export default function EpubReaderView({
       const tapX = e.changedTouches[0].clientX;
       const screenWidth = window.innerWidth;
       if (tapX < screenWidth * 0.3) {
+        didPageTurnRef.current = true;
         animatePageTurn('prev');
       } else if (tapX > screenWidth * 0.7) {
+        didPageTurnRef.current = true;
         animatePageTurn('next');
       }
       return;
@@ -275,29 +264,28 @@ export default function EpubReaderView({
     const shouldTurn = velocity > 0.4 || Math.abs(dx) > 60;
 
     if (shouldTurn && Math.abs(dx) > 20) {
-      // 翻页：继续旋转到底
+      // 掀起翻页
+      didPageTurnRef.current = true;
       animatingRef.current = true;
       const direction = dx > 0 ? 'prev' : 'next';
-      const exitRotate = direction === 'next' ? 'rotateY(-100deg)' : 'rotateY(100deg)';
-      const enterOrigin = direction === 'next' ? 'right center' : 'left center';
-      const enterRotate = direction === 'next' ? 'rotateY(70deg)' : 'rotateY(-70deg)';
+      const origin = direction === 'next' ? 'bottom right' : 'bottom left';
 
-      wrapper.style.transition = 'transform 250ms ease-in, opacity 200ms ease-in';
-      wrapper.style.transform = exitRotate;
-      wrapper.style.opacity = '0';
+      wrapper.style.transformOrigin = origin;
+      wrapper.style.transition = 'transform 220ms ease-in, opacity 200ms ease-in';
+      wrapper.style.transform = 'rotateX(6deg) scale(0.95)';
+      wrapper.style.opacity = '0.3';
 
       setTimeout(() => {
         if (direction === 'next') renditionRef.current?.next();
         else renditionRef.current?.prev();
 
         wrapper.style.transition = 'none';
-        wrapper.style.transformOrigin = enterOrigin;
-        wrapper.style.transform = enterRotate;
-        wrapper.style.opacity = '0';
+        wrapper.style.transform = 'rotateX(-3deg) scale(0.97)';
+        wrapper.style.opacity = '0.4';
         void wrapper.offsetHeight;
 
-        wrapper.style.transition = 'transform 250ms ease-out, opacity 180ms ease-out';
-        wrapper.style.transform = 'rotateY(0deg)';
+        wrapper.style.transition = 'transform 220ms ease-out, opacity 180ms ease-out';
+        wrapper.style.transform = 'rotateX(0deg) scale(1)';
         wrapper.style.opacity = '1';
 
         setTimeout(() => {
@@ -306,12 +294,12 @@ export default function EpubReaderView({
           wrapper.style.transform = '';
           wrapper.style.opacity = '';
           wrapper.style.transformOrigin = '';
-        }, 260);
-      }, 250);
+        }, 230);
+      }, 220);
     } else {
       // 回弹
-      wrapper.style.transition = 'transform 250ms ease-out, opacity 250ms ease-out';
-      wrapper.style.transform = 'rotateY(0deg)';
+      wrapper.style.transition = 'transform 200ms ease-out, opacity 200ms ease-out';
+      wrapper.style.transform = 'rotateX(0deg) scale(1)';
       wrapper.style.opacity = '1';
 
       setTimeout(() => {
@@ -319,7 +307,7 @@ export default function EpubReaderView({
         wrapper.style.transform = '';
         wrapper.style.opacity = '';
         wrapper.style.transformOrigin = '';
-      }, 260);
+      }, 210);
     }
   }, [animatePageTurn]);
 
@@ -335,8 +323,8 @@ export default function EpubReaderView({
   }
 
   return (
-    <div className="relative w-full h-full overflow-hidden" style={{ perspective: '1200px' }}>
-      {/* 动画 wrapper：3D 翻书效果 */}
+    <div className="relative w-full h-full overflow-hidden" style={{ perspective: '800px' }}>
+      {/* 动画 wrapper：掀页角效果 */}
       <div
         ref={wrapperRef}
         className="w-full h-full will-change-transform"
@@ -352,6 +340,22 @@ export default function EpubReaderView({
           onTouchStart={onTouchStart}
           onTouchMove={onTouchMove}
           onTouchEnd={onTouchEnd}
+          onClick={(e) => {
+            // 如果刚刚触摸翻了页，吞掉合成 click，不触发 toolbar 切换
+            if (didPageTurnRef.current) {
+              didPageTurnRef.current = false;
+              e.stopPropagation();
+              return;
+            }
+            // 左右区域是翻页区（桌面端鼠标点击），阻止冒泡
+            // 只有中间区域点击才穿透到父级去 toggle toolbar
+            const clickX = e.clientX;
+            const screenWidth = window.innerWidth;
+            if (clickX < screenWidth * 0.3 || clickX > screenWidth * 0.7) {
+              e.stopPropagation();
+              animatePageTurn(clickX < screenWidth * 0.3 ? 'prev' : 'next');
+            }
+          }}
           style={{ touchAction: 'pan-y' }}
         />
       )}
