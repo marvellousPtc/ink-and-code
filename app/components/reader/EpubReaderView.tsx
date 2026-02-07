@@ -21,8 +21,8 @@ export default function EpubReaderView({
   onProgressUpdate,
 }: EpubReaderViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const shadowRef = useRef<HTMLDivElement>(null);
+  const curlRef = useRef<HTMLDivElement>(null);
+  const curlShadowRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<Book | null>(null);
   const renditionRef = useRef<Rendition | null>(null);
   const [isReady, setIsReady] = useState(false);
@@ -30,68 +30,95 @@ export default function EpubReaderView({
 
   const animatingRef = useRef(false);
 
-  // ---- turn.js 风格翻书动画：沿书脊 rotateY 翻转 ----
-  const animatePageTurn = useCallback((direction: 'prev' | 'next') => {
-    const rendition = renditionRef.current;
-    const wrapper = wrapperRef.current;
-    const shadow = shadowRef.current;
-    if (!rendition || !wrapper || animatingRef.current) return;
+  // ---- 掀页角：更新翻卷大小 ----
+  const updateCurl = useCallback((size: number, direction: 'next' | 'prev') => {
+    const curl = curlRef.current;
+    const shadow = curlShadowRef.current;
+    if (!curl || !shadow) return;
 
-    animatingRef.current = true;
     const isNext = direction === 'next';
 
-    // Phase 1 —— 当前页沿书脊翻走
-    wrapper.style.transformOrigin = isNext ? 'left center' : 'right center';
-    wrapper.style.transition = 'transform 380ms cubic-bezier(0.4, 0.0, 0.7, 1)';
-    wrapper.style.transform = `rotateY(${isNext ? '-90' : '90'}deg)`;
-
-    if (shadow) {
-      shadow.style.transition = 'opacity 380ms cubic-bezier(0.4, 0.0, 0.7, 1)';
-      shadow.style.background = isNext
-        ? 'linear-gradient(to left, rgba(0,0,0,0.25) 0%, transparent 80%)'
-        : 'linear-gradient(to right, rgba(0,0,0,0.25) 0%, transparent 80%)';
-      shadow.style.opacity = '1';
+    if (size <= 0) {
+      curl.style.width = '0';
+      curl.style.height = '0';
+      curl.style.opacity = '0';
+      shadow.style.width = '0';
+      shadow.style.height = '0';
+      shadow.style.opacity = '0';
+      return;
     }
+
+    // 翻卷三角形
+    curl.style.width = `${size}px`;
+    curl.style.height = `${size}px`;
+    curl.style.opacity = '1';
+    curl.style.bottom = '0';
+    curl.style.right = isNext ? '0' : 'auto';
+    curl.style.left = isNext ? 'auto' : '0';
+
+    if (isNext) {
+      curl.style.clipPath = 'polygon(100% 0%, 0% 100%, 100% 100%)';
+      curl.style.background = [
+        'linear-gradient(315deg, transparent 44%, rgba(255,255,255,0.5) 48%, rgba(0,0,0,0.06) 52%, transparent 56%)',
+        'linear-gradient(315deg, #dedad4 0%, #eeece7 30%, #f7f5f2 55%, #fdfcfb 100%)',
+      ].join(', ');
+      curl.style.boxShadow = '-3px -3px 8px rgba(0,0,0,0.12), -1px -1px 3px rgba(0,0,0,0.06)';
+    } else {
+      curl.style.clipPath = 'polygon(0% 0%, 0% 100%, 100% 100%)';
+      curl.style.background = [
+        'linear-gradient(45deg, transparent 44%, rgba(255,255,255,0.5) 48%, rgba(0,0,0,0.06) 52%, transparent 56%)',
+        'linear-gradient(45deg, #dedad4 0%, #eeece7 30%, #f7f5f2 55%, #fdfcfb 100%)',
+      ].join(', ');
+      curl.style.boxShadow = '3px -3px 8px rgba(0,0,0,0.12), 1px -1px 3px rgba(0,0,0,0.06)';
+    }
+
+    // 底部阴影
+    const shadowSize = size * 1.15;
+    shadow.style.width = `${shadowSize}px`;
+    shadow.style.height = `${shadowSize}px`;
+    shadow.style.bottom = '0';
+    shadow.style.right = isNext ? '0' : 'auto';
+    shadow.style.left = isNext ? 'auto' : '0';
+    shadow.style.opacity = String(Math.min(0.5, size / 250));
+    shadow.style.background = isNext
+      ? 'radial-gradient(ellipse at bottom right, rgba(0,0,0,0.22) 0%, transparent 65%)'
+      : 'radial-gradient(ellipse at bottom left, rgba(0,0,0,0.22) 0%, transparent 65%)';
+  }, []);
+
+  // ---- 掀角翻页动画 ----
+  const animatePageTurn = useCallback((direction: 'prev' | 'next') => {
+    const rendition = renditionRef.current;
+    if (!rendition || animatingRef.current) return;
+
+    animatingRef.current = true;
+    const curl = curlRef.current;
+    const shadow = curlShadowRef.current;
+
+    const rect = containerRef.current?.getBoundingClientRect();
+    const maxSize = rect ? Math.min(rect.width, rect.height) * 0.5 : 160;
+
+    // Phase 1 —— 掀角展开
+    if (curl) curl.style.transition = 'width 320ms ease-out, height 320ms ease-out, opacity 200ms ease-out';
+    if (shadow) shadow.style.transition = 'width 320ms ease-out, height 320ms ease-out, opacity 320ms ease-out';
+    updateCurl(maxSize, direction);
 
     setTimeout(() => {
       // 换页
-      if (isNext) rendition.next();
+      if (direction === 'next') rendition.next();
       else rendition.prev();
 
-      // Phase 2 —— 新页从对侧翻入
-      wrapper.style.transition = 'none';
-      wrapper.style.transform = `rotateY(${isNext ? '90' : '-90'}deg)`;
-
-      if (shadow) {
-        shadow.style.transition = 'none';
-        shadow.style.background = isNext
-          ? 'linear-gradient(to right, rgba(0,0,0,0.25) 0%, transparent 80%)'
-          : 'linear-gradient(to left, rgba(0,0,0,0.25) 0%, transparent 80%)';
-      }
-
-      void wrapper.offsetHeight; // force reflow
-
-      wrapper.style.transition = 'transform 380ms cubic-bezier(0.0, 0.0, 0.2, 1)';
-      wrapper.style.transform = 'rotateY(0deg)';
-
-      if (shadow) {
-        shadow.style.transition = 'opacity 380ms cubic-bezier(0.0, 0.0, 0.2, 1)';
-        shadow.style.opacity = '0';
-      }
+      // Phase 2 —— 掀角收回
+      if (curl) curl.style.transition = 'width 250ms ease-in, height 250ms ease-in, opacity 180ms ease-in 70ms';
+      if (shadow) shadow.style.transition = 'width 250ms ease-in, height 250ms ease-in, opacity 220ms ease-in';
+      updateCurl(0, direction);
 
       setTimeout(() => {
         animatingRef.current = false;
-        wrapper.style.transition = '';
-        wrapper.style.transform = '';
-        wrapper.style.transformOrigin = '';
-        if (shadow) {
-          shadow.style.transition = '';
-          shadow.style.opacity = '';
-          shadow.style.background = '';
-        }
-      }, 400);
-    }, 380);
-  }, []);
+        if (curl) curl.style.transition = '';
+        if (shadow) shadow.style.transition = '';
+      }, 260);
+    }, 330);
+  }, [updateCurl]);
 
   // 加载 EPUB
   useEffect(() => {
@@ -219,7 +246,7 @@ export default function EpubReaderView({
     });
   }, [settings?.fontSize, settings?.lineHeight, settings?.fontFamily, settings]);
 
-  // ---- 触摸手势：turn.js 风格跟手翻书 ----
+  // ---- 触摸手势：掀角跟手 ----
   const touchRef = useRef<{ x: number; y: number; t: number; moved: boolean } | null>(null);
   const didPageTurnRef = useRef(false);
 
@@ -235,9 +262,6 @@ export default function EpubReaderView({
 
   const onTouchMove = useCallback((e: React.TouchEvent) => {
     if (!touchRef.current || animatingRef.current) return;
-    const wrapper = wrapperRef.current;
-    const shadow = shadowRef.current;
-    if (!wrapper) return;
 
     const dx = e.touches[0].clientX - touchRef.current.x;
     const dy = e.touches[0].clientY - touchRef.current.y;
@@ -247,25 +271,23 @@ export default function EpubReaderView({
     }
 
     if (touchRef.current.moved) {
-      // 跟手翻书：水平拖动映射到 rotateY 角度
+      const curl = curlRef.current;
+      const shadow = curlShadowRef.current;
+      if (!curl || !shadow) return;
+
+      // 跟手掀角：拖动距离映射到翻卷大小
+      const rect = containerRef.current?.getBoundingClientRect();
+      const maxSize = rect ? Math.min(rect.width, rect.height) * 0.5 : 160;
       const screenWidth = window.innerWidth;
-      const ratio = Math.min(1, Math.abs(dx) / (screenWidth * 0.45));
-      const angle = ratio * 90;
+      const ratio = Math.min(1, Math.abs(dx) / (screenWidth * 0.4));
+      const size = ratio * maxSize;
       const isNext = dx < 0;
 
-      wrapper.style.transition = 'none';
-      wrapper.style.transformOrigin = isNext ? 'left center' : 'right center';
-      wrapper.style.transform = `rotateY(${isNext ? -angle : angle}deg)`;
-
-      if (shadow) {
-        shadow.style.transition = 'none';
-        shadow.style.opacity = String(ratio * 0.7);
-        shadow.style.background = isNext
-          ? 'linear-gradient(to left, rgba(0,0,0,0.25) 0%, transparent 80%)'
-          : 'linear-gradient(to right, rgba(0,0,0,0.25) 0%, transparent 80%)';
-      }
+      curl.style.transition = 'none';
+      shadow.style.transition = 'none';
+      updateCurl(size, isNext ? 'next' : 'prev');
     }
-  }, []);
+  }, [updateCurl]);
 
   const onTouchEnd = useCallback((e: React.TouchEvent) => {
     if (!touchRef.current || animatingRef.current) return;
@@ -274,9 +296,8 @@ export default function EpubReaderView({
     const wasMoved = touchRef.current.moved;
     touchRef.current = null;
 
-    const wrapper = wrapperRef.current;
-    const shadow = shadowRef.current;
-    if (!wrapper) return;
+    const curl = curlRef.current;
+    const shadow = curlShadowRef.current;
 
     // 点击翻页
     if (!wasMoved) {
@@ -294,81 +315,48 @@ export default function EpubReaderView({
 
     const velocity = Math.abs(dx) / Math.max(dt, 1);
     const shouldTurn = velocity > 0.4 || Math.abs(dx) > 60;
+    const isNext = dx < 0;
+    const dir = isNext ? 'next' as const : 'prev' as const;
 
     if (shouldTurn && Math.abs(dx) > 20) {
-      // 完成翻书：继续旋转到 90° 然后换页
+      // 完成翻页：掀角展开到最大 → 换页 → 收回
       didPageTurnRef.current = true;
       animatingRef.current = true;
-      const isNext = dx < 0;
 
-      wrapper.style.transformOrigin = isNext ? 'left center' : 'right center';
-      wrapper.style.transition = 'transform 280ms cubic-bezier(0.4, 0.0, 0.7, 1)';
-      wrapper.style.transform = `rotateY(${isNext ? '-90' : '90'}deg)`;
+      const rect = containerRef.current?.getBoundingClientRect();
+      const maxSize = rect ? Math.min(rect.width, rect.height) * 0.5 : 160;
 
-      if (shadow) {
-        shadow.style.transition = 'opacity 280ms cubic-bezier(0.4, 0.0, 0.7, 1)';
-        shadow.style.opacity = '1';
-      }
+      if (curl) curl.style.transition = 'width 200ms ease-out, height 200ms ease-out';
+      if (shadow) shadow.style.transition = 'width 200ms ease-out, height 200ms ease-out, opacity 200ms ease-out';
+      updateCurl(maxSize, dir);
 
       setTimeout(() => {
         if (isNext) renditionRef.current?.next();
         else renditionRef.current?.prev();
 
-        // 新页从对侧翻入
-        wrapper.style.transition = 'none';
-        wrapper.style.transform = `rotateY(${isNext ? '90' : '-90'}deg)`;
-
-        if (shadow) {
-          shadow.style.transition = 'none';
-          shadow.style.background = isNext
-            ? 'linear-gradient(to right, rgba(0,0,0,0.25) 0%, transparent 80%)'
-            : 'linear-gradient(to left, rgba(0,0,0,0.25) 0%, transparent 80%)';
-        }
-
-        void wrapper.offsetHeight;
-
-        wrapper.style.transition = 'transform 280ms cubic-bezier(0.0, 0.0, 0.2, 1)';
-        wrapper.style.transform = 'rotateY(0deg)';
-
-        if (shadow) {
-          shadow.style.transition = 'opacity 280ms cubic-bezier(0.0, 0.0, 0.2, 1)';
-          shadow.style.opacity = '0';
-        }
+        // 收回
+        if (curl) curl.style.transition = 'width 250ms ease-in, height 250ms ease-in, opacity 180ms ease-in 70ms';
+        if (shadow) shadow.style.transition = 'width 250ms ease-in, height 250ms ease-in, opacity 220ms ease-in';
+        updateCurl(0, dir);
 
         setTimeout(() => {
           animatingRef.current = false;
-          wrapper.style.transition = '';
-          wrapper.style.transform = '';
-          wrapper.style.transformOrigin = '';
-          if (shadow) {
-            shadow.style.transition = '';
-            shadow.style.opacity = '';
-            shadow.style.background = '';
-          }
-        }, 300);
-      }, 280);
+          if (curl) curl.style.transition = '';
+          if (shadow) shadow.style.transition = '';
+        }, 260);
+      }, 210);
     } else {
-      // 回弹：旋转角度不够，弹回原位
-      wrapper.style.transition = 'transform 300ms cubic-bezier(0.0, 0.0, 0.2, 1)';
-      wrapper.style.transform = 'rotateY(0deg)';
-
-      if (shadow) {
-        shadow.style.transition = 'opacity 300ms cubic-bezier(0.0, 0.0, 0.2, 1)';
-        shadow.style.opacity = '0';
-      }
+      // 回弹：掀角不够大，弹回原位
+      if (curl) curl.style.transition = 'width 280ms cubic-bezier(0.0, 0, 0.2, 1), height 280ms cubic-bezier(0.0, 0, 0.2, 1), opacity 250ms ease-out';
+      if (shadow) shadow.style.transition = 'width 280ms cubic-bezier(0.0, 0, 0.2, 1), height 280ms cubic-bezier(0.0, 0, 0.2, 1), opacity 250ms ease-out';
+      updateCurl(0, dir);
 
       setTimeout(() => {
-        wrapper.style.transition = '';
-        wrapper.style.transform = '';
-        wrapper.style.transformOrigin = '';
-        if (shadow) {
-          shadow.style.transition = '';
-          shadow.style.opacity = '';
-          shadow.style.background = '';
-        }
-      }, 310);
+        if (curl) curl.style.transition = '';
+        if (shadow) shadow.style.transition = '';
+      }, 290);
     }
-  }, [animatePageTurn]);
+  }, [animatePageTurn, updateCurl]);
 
   if (loadError) {
     return (
@@ -382,21 +370,22 @@ export default function EpubReaderView({
   }
 
   return (
-    <div className="relative w-full h-full overflow-hidden" style={{ perspective: '1200px' }}>
-      {/* 翻书 wrapper：绕书脊 rotateY 实现 turn.js 风格翻页 */}
-      <div
-        ref={wrapperRef}
-        className="w-full h-full will-change-transform"
-        style={{ transformStyle: 'preserve-3d', backfaceVisibility: 'hidden' }}
-      >
-        <div ref={containerRef} className="w-full h-full" />
-      </div>
+    <div className="relative w-full h-full overflow-hidden">
+      {/* EPUB 内容 */}
+      <div ref={containerRef} className="w-full h-full" />
 
-      {/* 翻页阴影层：模拟书页翻转时的光影变化 */}
+      {/* 掀角阴影（在翻卷三角形下面） */}
       <div
-        ref={shadowRef}
-        className="absolute inset-0 pointer-events-none z-5"
-        style={{ opacity: 0 }}
+        ref={curlShadowRef}
+        className="absolute pointer-events-none"
+        style={{ opacity: 0, zIndex: 5 }}
+      />
+
+      {/* 掀角三角形（折回的纸张） */}
+      <div
+        ref={curlRef}
+        className="absolute pointer-events-none"
+        style={{ opacity: 0, zIndex: 6 }}
       />
 
       {/* 透明触摸层 */}
@@ -407,14 +396,11 @@ export default function EpubReaderView({
           onTouchMove={onTouchMove}
           onTouchEnd={onTouchEnd}
           onClick={(e) => {
-            // 如果刚刚触摸翻了页，吞掉合成 click，不触发 toolbar 切换
             if (didPageTurnRef.current) {
               didPageTurnRef.current = false;
               e.stopPropagation();
               return;
             }
-            // 左右区域是翻页区（桌面端鼠标点击），阻止冒泡
-            // 只有中间区域点击才穿透到父级去 toggle toolbar
             const clickX = e.clientX;
             const screenWidth = window.innerWidth;
             if (clickX < screenWidth * 0.3 || clickX > screenWidth * 0.7) {
