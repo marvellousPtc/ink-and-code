@@ -29,9 +29,6 @@ importers:
       '@dnd-kit/utilities':
         specifier: ^3.2.2
         version: 3.2.2(react@19.2.3)
-      '@marvellousptc/react-pageflip':
-        specifier: ^2.1.0
-        version: 2.1.0
       '@prisma/adapter-pg':
         specifier: ^6.2.1
         version: 6.19.2
@@ -146,6 +143,9 @@ importers:
       react-markdown:
         specifier: ^10.1.0
         version: 10.1.0(@types/react@19.2.10)(react@19.2.3)
+      react-pageflip-enhanced:
+        specifier: ^2.1.0
+        version: 2.1.0
       react-pdf:
         specifier: ^10.3.0
         version: 10.3.0(@types/react@19.2.10)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -769,9 +769,6 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
-
-  '@marvellousptc/react-pageflip@2.1.0':
-    resolution: {integrity: sha512-1NaDbKabXZUrZw+RwAX7wmVv7ZWzJ3M4Wjvs7FFtPXiGbGI/Mad5oBkKiQJx+PD5Q36D6kzHpm/HFDsUP/DuIA==}
 
   '@napi-rs/canvas-android-arm64@0.1.90':
     resolution: {integrity: sha512-3JBULVF+BIgr7yy7Rf8UjfbkfFx4CtXrkJFD1MDgKJ83b56o0U9ciT8ZGTCNmwWkzu8RbNKlyqPP3KYRG88y7Q==}
@@ -3708,6 +3705,9 @@ packages:
       '@types/react': '>=18'
       react: '>=18'
 
+  react-pageflip-enhanced@2.1.0:
+    resolution: {integrity: sha512-pI/TrCCdXdvVeCSb0VQ1j8WnkKs04PS2MzjN7zGRWt0zGqvDtaGVWwrb/k5tfxhYzEoQeSAJDaeZHruETL+ybw==}
+
   react-pdf@10.3.0:
     resolution: {integrity: sha512-2LQzC9IgNVAX8gM+6F+1t/70a9/5RWThYxc+CWAmT2LW/BRmnj+35x1os5j/nR2oldyf8L+hCAMBmVKU8wrYFA==}
     peerDependencies:
@@ -4789,8 +4789,6 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
-
-  '@marvellousptc/react-pageflip@2.1.0': {}
 
   '@napi-rs/canvas-android-arm64@0.1.90':
     optional: true
@@ -8098,6 +8096,8 @@ snapshots:
       vfile: 6.0.3
     transitivePeerDependencies:
       - supports-color
+
+  react-pageflip-enhanced@2.1.0: {}
 
   react-pdf@10.3.0(@types/react@19.2.10)(react-dom@19.2.3(react@19.2.3))(react@19.2.3):
     dependencies:

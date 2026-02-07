@@ -7,7 +7,7 @@ import {
   useState,
   useMemo,
 } from 'react';
-import HTMLFlipBook from '@marvellousptc/react-pageflip';
+import HTMLFlipBook from 'react-pageflip-enhanced';
 import { useEpubContent } from '@/lib/hooks/use-epub-content';
 import {
   useBookPagination,
