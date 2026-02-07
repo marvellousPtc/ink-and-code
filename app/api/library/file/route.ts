@@ -37,7 +37,7 @@ export async function GET(request: Request) {
     // 优先使用转换后的 URL
     const fileUrl = book.readableUrl || book.originalUrl;
 
-    // 从 OSS 获取文件（大文件设置较长的超时）
+    // 从 OSS 获取文件（流式传输，不缓冲整个文件到内存）
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 分钟超时
 
@@ -49,14 +49,18 @@ export async function GET(request: Request) {
     }
 
     const contentType = response.headers.get('content-type') || 'application/octet-stream';
-    const buffer = await response.arrayBuffer();
+    const contentLength = response.headers.get('content-length');
 
-    return new NextResponse(buffer, {
-      headers: {
-        'Content-Type': contentType,
-        'Cache-Control': 'private, max-age=3600',
-      },
-    });
+    const headers: Record<string, string> = {
+      'Content-Type': contentType,
+      'Cache-Control': 'private, max-age=3600',
+    };
+    if (contentLength) {
+      headers['Content-Length'] = contentLength;
+    }
+
+    // 直接转发 OSS 的响应流，浏览器可以边下载边处理
+    return new NextResponse(response.body, { headers });
   } catch (error) {
     console.error('Failed to proxy file:', error);
     return ApiError.internal('文件获取失败');

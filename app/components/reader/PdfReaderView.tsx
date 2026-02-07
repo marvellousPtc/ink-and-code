@@ -83,6 +83,42 @@ export default function PdfReaderView({
     return () => document.removeEventListener('keydown', handleKeydown);
   }, [numPages]);
 
+  // 触摸滑动翻页
+  useEffect(() => {
+    if (!numPages) return;
+
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchStartTime = 0;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      touchStartX = e.changedTouches[0].clientX;
+      touchStartY = e.changedTouches[0].clientY;
+      touchStartTime = Date.now();
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      const dy = e.changedTouches[0].clientY - touchStartY;
+      const dt = Date.now() - touchStartTime;
+
+      if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5 && dt < 500) {
+        if (dx > 0) {
+          setPageNumber(prev => Math.max(1, prev - 1));
+        } else {
+          setPageNumber(prev => Math.min(numPages, prev + 1));
+        }
+      }
+    };
+
+    document.addEventListener('touchstart', handleTouchStart, { passive: true });
+    document.addEventListener('touchend', handleTouchEnd, { passive: true });
+    return () => {
+      document.removeEventListener('touchstart', handleTouchStart);
+      document.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [numPages]);
+
   const pageWidth = settings?.pageWidth || 800;
   const pdfFile = useMemo(() => pdfData ? { data: pdfData } : null, [pdfData]);
 

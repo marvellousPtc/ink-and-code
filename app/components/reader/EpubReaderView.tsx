@@ -93,7 +93,8 @@ export default function EpubReaderView({
         };
         document.addEventListener('keydown', handleKeydown);
 
-        // 触摸滑动翻页
+        // 触摸滑动翻页 —— 通过 hooks.content 在每次内容加载时注册
+        // epubjs 每次翻页都会替换 iframe 内容，普通事件监听会失效
         let touchStartX = 0;
         let touchStartY = 0;
         let touchStartTime = 0;
@@ -119,13 +120,13 @@ export default function EpubReaderView({
           }
         };
 
-        // 在 epubjs iframe 内部注册触摸事件
-        rendition.on('rendered', () => {
-          const iframe = container.querySelector('iframe');
-          const iframeDoc = iframe?.contentDocument;
-          if (iframeDoc) {
-            iframeDoc.addEventListener('touchstart', handleTouchStart, { passive: true });
-            iframeDoc.addEventListener('touchend', handleTouchEnd, { passive: true });
+        // 通过 hooks.content 在每次 iframe 内容加载时注册触摸事件
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        rendition.hooks.content.register((contents: any) => {
+          const doc = contents.document as Document;
+          if (doc) {
+            doc.addEventListener('touchstart', handleTouchStart, { passive: true });
+            doc.addEventListener('touchend', handleTouchEnd, { passive: true });
           }
         });
 
@@ -136,12 +137,6 @@ export default function EpubReaderView({
         // 清理函数
         const cleanup = () => {
           document.removeEventListener('keydown', handleKeydown);
-          const iframe = container.querySelector('iframe');
-          const iframeDoc = iframe?.contentDocument;
-          if (iframeDoc) {
-            iframeDoc.removeEventListener('touchstart', handleTouchStart);
-            iframeDoc.removeEventListener('touchend', handleTouchEnd);
-          }
           container.removeEventListener('touchstart', handleTouchStart);
           container.removeEventListener('touchend', handleTouchEnd);
         };
