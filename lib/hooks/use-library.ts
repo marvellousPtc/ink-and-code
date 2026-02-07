@@ -308,10 +308,22 @@ export function useUploadBook() {
       try {
         // 优先直传 OSS（跳过服务端中转）
         return await directUpload(file);
-      } catch (err) {
+      } catch (directErr) {
         // 直传失败（CORS 未配置等），自动回退到服务端代理上传
-        console.warn('直传 OSS 失败，回退到服务端代理上传:', err);
-        return serverUploadFile(file);
+        console.warn('直传 OSS 失败，回退到服务端代理上传:', directErr);
+        try {
+          return await serverUploadFile(file);
+        } catch (serverErr) {
+          // 两条路径都失败，给出更有用的提示
+          const msg = serverErr instanceof Error ? serverErr.message : '';
+          if (msg.includes('413') || msg.includes('太大') || msg.includes('client_max_body_size')) {
+            throw new Error(
+              '文件太大，服务端代理上传被 nginx 拦截。\n' +
+              '解决方案：在 OSS Bucket 中配置 CORS 规则（允许 PUT 方法），即可启用直传 OSS 绕过 nginx 限制。'
+            );
+          }
+          throw serverErr;
+        }
       }
     } else {
       // 需要格式转换，走服务端代理

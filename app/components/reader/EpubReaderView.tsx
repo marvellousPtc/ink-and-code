@@ -54,12 +54,7 @@ export default function EpubReaderView({
 
         renditionRef.current = rendition;
 
-        if (initialLocation) {
-          rendition.display(initialLocation);
-        } else {
-          rendition.display();
-        }
-
+        // 先注册事件再 display，避免丢失初始事件
         rendition.on('relocated', (location: { start: { cfi: string; percentage: number } }) => {
           const pct = Math.round((location.start.percentage || 0) * 100);
           onProgressUpdate?.(pct, location.start.cfi);
@@ -67,6 +62,25 @@ export default function EpubReaderView({
 
         rendition.on('rendered', () => {
           if (!destroyed) setIsReady(true);
+        });
+
+        if (initialLocation) {
+          rendition.display(initialLocation);
+        } else {
+          rendition.display();
+        }
+
+        // 生成位置信息（用于计算阅读百分比，不调用的话 percentage 始终为 0）
+        book.ready.then(() => {
+          return book.locations.generate(1024);
+        }).then(() => {
+          if (destroyed) return;
+          // 位置生成后，刷新一次当前进度
+          const loc = rendition.currentLocation() as unknown as { start?: { cfi: string; percentage: number } };
+          if (loc?.start) {
+            const pct = Math.round((loc.start.percentage || 0) * 100);
+            onProgressUpdate?.(pct, loc.start.cfi);
+          }
         });
 
         // 键盘翻页
