@@ -126,8 +126,11 @@ export interface EpubContentResult {
 /**
  * 解析 EPUB 文件，提取各章节 HTML 及样式
  * 仅用于解析，不做渲染
+ *
+ * @param bookId  书籍 ID（用于服务器代理回退）
+ * @param url     OSS 直链（优先直接下载，避免服务器中转）
  */
-export function useEpubContent(bookId: string): EpubContentResult {
+export function useEpubContent(bookId: string, url?: string): EpubContentResult {
   const [chapters, setChapters] = useState<ChapterData[]>([]);
   const [styles, setStyles] = useState('');
   const [metadata, setMetadata] = useState({ title: '', author: '' });
@@ -155,9 +158,25 @@ export function useEpubContent(bookId: string): EpubContentResult {
 
       try {
         // 1. 获取 EPUB 二进制数据
-        const res = await fetch(`/api/library/file?id=${bookId}`);
-        if (!res.ok) throw new Error(`加载失败: ${res.status}`);
-        const data = await res.arrayBuffer();
+        // 优先直接从 OSS 下载（跳过服务器中转），CORS 失败时回退到服务器代理
+        let data: ArrayBuffer;
+        if (url) {
+          try {
+            const directRes = await fetch(url);
+            if (!directRes.ok) throw new Error(`直链下载失败: ${directRes.status}`);
+            data = await directRes.arrayBuffer();
+          } catch {
+            // CORS 或网络错误 → 回退到服务器代理
+            console.warn('[EPUB] 直链下载失败，回退到服务器代理');
+            const proxyRes = await fetch(`/api/library/file?id=${bookId}`);
+            if (!proxyRes.ok) throw new Error(`加载失败: ${proxyRes.status}`);
+            data = await proxyRes.arrayBuffer();
+          }
+        } else {
+          const res = await fetch(`/api/library/file?id=${bookId}`);
+          if (!res.ok) throw new Error(`加载失败: ${res.status}`);
+          data = await res.arrayBuffer();
+        }
         if (cancelled) return;
 
         // 2. 用 epubjs 解析
@@ -324,6 +343,9 @@ export function useEpubContent(bookId: string): EpubContentResult {
       cancelled = true;
       cleanup();
     };
+  // url 不加入依赖：它是 OSS 直链，整个生命周期不会变；
+  // 如果加入，引用变化会导致 EPUB 重新下载和解析
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookId, cleanup]);
 
   return { chapters, styles, metadata, isLoading, error };
