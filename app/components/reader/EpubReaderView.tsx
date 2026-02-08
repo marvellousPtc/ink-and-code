@@ -6,7 +6,6 @@ import {
   useCallback,
   useState,
   useMemo,
-  startTransition,
 } from 'react';
 import HTMLFlipBook from 'react-pageflip-enhanced';
 import { useEpubContent } from '@/lib/hooks/use-epub-content';
@@ -20,8 +19,14 @@ import './epub-reader.css';
 
 /** 懒渲染窗口：只有距离当前页 ±N 范围内的页面才渲染真实内容 */
 const LAZY_WINDOW_DESKTOP = 4;
-/** 移动端单页模式只需更小的窗口，减少 DOM 和多列布局开销 */
-const LAZY_WINDOW_MOBILE = 2;
+/**
+ * 移动端懒渲染窗口 ±4 = 覆盖 9 页。
+ * 配合"防抖 + 边缘预更新"策略：
+ * - 正常翻页（距中心 < 3 页）：不触发 re-render，零抖动
+ * - 接近窗口边缘（距中心 ≥ 3 页）：立即更新窗口中心，防止空白
+ * - 用户停止翻页：300ms 后防抖把窗口居中
+ */
+const LAZY_WINDOW_MOBILE = 4;
 
 interface EpubReaderViewProps {
   url: string;
@@ -113,6 +118,9 @@ export default function EpubReaderView({
     return Math.min(initialPage, Math.max(0, pagination.totalPages - 1));
   }, [pagination.isReady, pagination.totalPages, initialPage]);
 
+  // currentPage 状态仅用于控制懒渲染窗口（决定哪些页面渲染真实 HTML）。
+  // 翻页时不直接更新它，而是通过防抖延迟更新，避免每次翻页都触发
+  // 大量 DOM 重建（dangerouslySetInnerHTML 是同步操作，无法被 startTransition 拆分）。
   const [currentPage, setCurrentPage] = useState(0);
   const [showBook, setShowBook] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -121,6 +129,8 @@ export default function EpubReaderView({
   const prevTotalRef = useRef(0);
   const flipTargetRef = useRef(0);
   const currentPageRef = useRef(0);
+  /** 防抖定时器：控制懒渲染窗口的更新频率 */
+  const lazyUpdateTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // 首次分页完成后设置正确的起始页
   useEffect(() => {
@@ -155,33 +165,37 @@ export default function EpubReaderView({
 
   // ---- 翻页事件 ----
   //
-  // 关键设计：把 setCurrentPage（触发懒渲染窗口移动 → DOM 重建）从动画结束后
-  // 移到动画开始时。这样 DOM 构建发生在 250ms 动画期间，而不是动画完成后。
+  // 混合策略：防抖 + 边缘保护
   //
-  // 为什么有些书翻页会抖动？
-  // 大章节的书（30-50页/章），每页通过 dangerouslySetInnerHTML 注入整章 HTML
-  // （可能几百KB）。如果在动画结束后才构建 DOM，主线程被阻塞 50-200ms → 用户
-  // 看到"抖动/刷新"。小章节的书 HTML 只有几KB，构建 5ms 完成，无感知。
+  // 问题：dangerouslySetInnerHTML 是不可拆分的同步 DOM 操作，大章节 HTML（几百 KB）
+  // 注入一次就阻塞主线程 50-200ms。如果每次翻页都 setCurrentPage，每次都重建 DOM → 抖动。
   //
-  // 解决方案：
-  // - handleFlip（动画开始）→ startTransition + setCurrentPage → 懒渲染窗口
-  //   在动画期间以低优先级更新，DOM 构建被动画掩盖
-  // - handleChangeState（动画结束）→ 只做 ref 更新和进度上报，不触发 re-render
+  // 解决：
+  // 1. 正常翻页：只更新 ref，不触发 state → 零 re-render，零抖动
+  // 2. 接近窗口边缘（距中心 ≥ lazyWindow-1）：立即更新，防止下一翻出现空白
+  // 3. 用户停止翻页：300ms 防抖把窗口居中
+  //
+  // 效果：连续翻 3 页才触发一次 re-render（而非每页都触发），抖动频率降低 67%。
+
   const handleFlip = useCallback(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (e: any) => {
       const targetPage = e.data as number;
       flipTargetRef.current = targetPage;
+      currentPageRef.current = targetPage;
 
-      // 在动画开始时就更新懒渲染窗口，利用 250ms 动画时间做 DOM 构建
-      // startTransition 标记为低优先级更新，不会阻塞翻页动画的启动
-      if (targetPage !== currentPageRef.current) {
-        startTransition(() => {
-          setCurrentPage(targetPage);
-        });
-      }
+      // 紧急保护：如果目标页已经超出懒渲染窗口，立即更新防止空白
+      // setCurrentPage(prev => prev) 返回相同值时 React 自动跳过 re-render
+      setCurrentPage(prev => {
+        const lazyWindow = isMobile ? LAZY_WINDOW_MOBILE : LAZY_WINDOW_DESKTOP;
+        if (Math.abs(targetPage - prev) > lazyWindow) {
+          if (lazyUpdateTimer.current) clearTimeout(lazyUpdateTimer.current);
+          return targetPage;
+        }
+        return prev; // 在窗口内：不更新，不 re-render
+      });
     },
-    [],
+    [isMobile],
   );
 
   const handleChangeState = useCallback(
@@ -191,18 +205,39 @@ export default function EpubReaderView({
         const page = flipTargetRef.current;
         currentPageRef.current = page;
 
-        // 安全网：如果 handleFlip 未触发（极端情况），在动画结束后兜底
-        // 正常流程下 currentPage 已经在 handleFlip 中更新过，此处不会再触发
-        setCurrentPage(prev => prev === page ? prev : page);
-
+        // 上报阅读进度（不触发本组件 re-render）
         if (pagination.totalPages > 0) {
           const pct = Math.round((page / Math.max(1, pagination.totalPages - 1)) * 100);
           onProgressUpdate?.(pct, `page:${page}`);
         }
+
+        if (lazyUpdateTimer.current) clearTimeout(lazyUpdateTimer.current);
+
+        // 边缘预更新：如果再翻一页就会出窗口，现在就更新
+        // prev 返回相同值时 React 跳过 re-render，所以这个调用在窗口内是零开销
+        setCurrentPage(prev => {
+          const lazyWindow = isMobile ? LAZY_WINDOW_MOBILE : LAZY_WINDOW_DESKTOP;
+          if (Math.abs(page - prev) >= lazyWindow - 1) {
+            return page; // 接近边缘：立即更新
+          }
+          return prev; // 安全区域：跳过
+        });
+
+        // 防抖：用户停止翻页 300ms 后，把窗口居中到当前位置
+        lazyUpdateTimer.current = setTimeout(() => {
+          setCurrentPage(prev => prev === page ? prev : page);
+        }, 300);
       }
     },
-    [pagination.totalPages, onProgressUpdate],
+    [pagination.totalPages, onProgressUpdate, isMobile],
   );
+
+  // 清理防抖定时器
+  useEffect(() => {
+    return () => {
+      if (lazyUpdateTimer.current) clearTimeout(lazyUpdateTimer.current);
+    };
+  }, []);
 
   // ---- 键盘翻页 ----
   useEffect(() => {
@@ -247,6 +282,9 @@ export default function EpubReaderView({
 
     // 滑动翻页：水平 > 20px，主要水平方向，800ms 内
     if (absDx > 20 && absDx > absDy * 0.8 && dt < 800) {
+      // preventDefault 阻止浏览器在 touchend 后合成 click 事件，
+      // 避免翻页动作冒泡到父级 handleToggleToolbar 导致 toolbar 反复出现/消失
+      e.preventDefault();
       if (dx < 0) {
         pageFlip.flipNext();
       } else {
@@ -259,11 +297,13 @@ export default function EpubReaderView({
     if (absDx < 10 && absDy < 10 && dt < 300) {
       const tapX = touch.clientX;
       if (tapX < containerSize.w * 0.35) {
+        e.preventDefault(); // 翻页操作：阻止合成 click，不触发 toolbar
         pageFlip.flipPrev();
       } else if (tapX > containerSize.w * 0.65) {
+        e.preventDefault(); // 翻页操作：阻止合成 click，不触发 toolbar
         pageFlip.flipNext();
       }
-      // 中间 30%：不处理，冒泡给父组件触发 toolbar toggle
+      // 中间 30%：不 preventDefault，click 自然冒泡到父组件切换 toolbar
     }
   }, [isMobile, containerSize.w]);
 
