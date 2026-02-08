@@ -6,6 +6,7 @@ import {
   useCallback,
   useState,
   useMemo,
+  startTransition,
 } from 'react';
 import HTMLFlipBook from 'react-pageflip-enhanced';
 import { useEpubContent } from '@/lib/hooks/use-epub-content';
@@ -153,10 +154,32 @@ export default function EpubReaderView({
   }, [pagination.isReady, pagination.totalPages, startPage]);
 
   // ---- 翻页事件 ----
+  //
+  // 关键设计：把 setCurrentPage（触发懒渲染窗口移动 → DOM 重建）从动画结束后
+  // 移到动画开始时。这样 DOM 构建发生在 250ms 动画期间，而不是动画完成后。
+  //
+  // 为什么有些书翻页会抖动？
+  // 大章节的书（30-50页/章），每页通过 dangerouslySetInnerHTML 注入整章 HTML
+  // （可能几百KB）。如果在动画结束后才构建 DOM，主线程被阻塞 50-200ms → 用户
+  // 看到"抖动/刷新"。小章节的书 HTML 只有几KB，构建 5ms 完成，无感知。
+  //
+  // 解决方案：
+  // - handleFlip（动画开始）→ startTransition + setCurrentPage → 懒渲染窗口
+  //   在动画期间以低优先级更新，DOM 构建被动画掩盖
+  // - handleChangeState（动画结束）→ 只做 ref 更新和进度上报，不触发 re-render
   const handleFlip = useCallback(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (e: any) => {
-      flipTargetRef.current = e.data as number;
+      const targetPage = e.data as number;
+      flipTargetRef.current = targetPage;
+
+      // 在动画开始时就更新懒渲染窗口，利用 250ms 动画时间做 DOM 构建
+      // startTransition 标记为低优先级更新，不会阻塞翻页动画的启动
+      if (targetPage !== currentPageRef.current) {
+        startTransition(() => {
+          setCurrentPage(targetPage);
+        });
+      }
     },
     [],
   );
@@ -166,15 +189,11 @@ export default function EpubReaderView({
     (e: any) => {
       if (e.data === 'read') {
         const page = flipTargetRef.current;
-        const prevPage = currentPageRef.current;
         currentPageRef.current = page;
 
-        // 只有页码真正变化时才触发 setState，避免无效 re-render
-        // 这是移动端"抖动"的关键修复：每次翻页完成后 setState 会导致
-        // 整个组件 re-render，重新遍历所有页面判断 isNear，开销很大
-        if (page !== prevPage) {
-          setCurrentPage(page);
-        }
+        // 安全网：如果 handleFlip 未触发（极端情况），在动画结束后兜底
+        // 正常流程下 currentPage 已经在 handleFlip 中更新过，此处不会再触发
+        setCurrentPage(prev => prev === page ? prev : page);
 
         if (pagination.totalPages > 0) {
           const pct = Math.round((page / Math.max(1, pagination.totalPages - 1)) * 100);
