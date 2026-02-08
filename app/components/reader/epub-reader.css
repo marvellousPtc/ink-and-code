@@ -131,6 +131,11 @@
   /* 性能优化：告诉浏览器每页内容独立，不影响其他元素布局 */
   contain: layout style paint;
 
+  /* GPU 合成层：翻页动画的 transform 由 GPU 处理，不触发主线程重绘 */
+  will-change: transform;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+
   /* 纸张纹理 */
   background-image:
     linear-gradient(
@@ -139,6 +144,11 @@
       rgba(0, 0, 0, 0.003) 50%,
       rgba(0, 0, 0, 0.005) 100%
     );
+}
+
+/* 内容层提升为独立合成层，避免翻页时重绘文字内容 */
+.epub-page-content {
+  transform: translateZ(0);
 }
 
 /* 深色主题页面 */
@@ -271,15 +281,6 @@
   .book-page {
     background-image: none;
     border-radius: 0;
-    /* GPU 合成层：翻页动画的 transform 由 GPU 处理，不触发主线程重绘 */
-    will-change: transform;
-    -webkit-backface-visibility: hidden;
-    backface-visibility: hidden;
-  }
-
-  /* 内容层也提升为独立合成层，避免翻页时重绘内容 */
-  .epub-page-content {
-    transform: translateZ(0);
   }
 }
 
