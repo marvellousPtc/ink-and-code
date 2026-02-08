@@ -17,8 +17,10 @@ import type { ReadingSettingsData } from '@/lib/hooks/use-library';
 import BookPage from './BookPage';
 import './epub-reader.css';
 
-/** 懒渲染窗口：只有距离当前页 ±LAZY_WINDOW 范围内的页面才渲染真实内容 */
-const LAZY_WINDOW = 4;
+/** 懒渲染窗口：只有距离当前页 ±N 范围内的页面才渲染真实内容 */
+const LAZY_WINDOW_DESKTOP = 4;
+/** 移动端单页模式只需更小的窗口，减少 DOM 和多列布局开销 */
+const LAZY_WINDOW_MOBILE = 2;
 
 interface EpubReaderViewProps {
   url: string;
@@ -164,8 +166,15 @@ export default function EpubReaderView({
     (e: any) => {
       if (e.data === 'read') {
         const page = flipTargetRef.current;
+        const prevPage = currentPageRef.current;
         currentPageRef.current = page;
-        setCurrentPage(page);
+
+        // 只有页码真正变化时才触发 setState，避免无效 re-render
+        // 这是移动端"抖动"的关键修复：每次翻页完成后 setState 会导致
+        // 整个组件 re-render，重新遍历所有页面判断 isNear，开销很大
+        if (page !== prevPage) {
+          setCurrentPage(page);
+        }
 
         if (pagination.totalPages > 0) {
           const pct = Math.round((page / Math.max(1, pagination.totalPages - 1)) * 100);
@@ -256,17 +265,28 @@ export default function EpubReaderView({
   const emptyContent = contentParsed && pagination.isReady && pagination.totalPages === 0 && chapters.length === 0;
 
   // ---- 构建页面数据 ----
+  // 预计算每个章节的页数，供 BookPage 精确设置容器宽度
+  const chapterPageCounts = useMemo(() => {
+    const counts: Record<number, number> = {};
+    for (const range of pagination.chapterPageRanges) {
+      counts[range.chapterIndex] = range.pageCount;
+    }
+    return counts;
+  }, [pagination.chapterPageRanges]);
+
   const pages = useMemo(() => {
     if (!ready) return [];
     return Array.from({ length: pagination.totalPages }, (_, i) => {
       const info = getChapterForPage(i, pagination.chapterPageRanges);
+      const chIdx = info?.chapterIndex ?? 0;
       return {
         pageIndex: i,
-        chapterIndex: info?.chapterIndex ?? 0,
+        chapterIndex: chIdx,
         pageInChapter: info?.pageInChapter ?? 0,
+        chapterPages: chapterPageCounts[chIdx] ?? 1,
       };
     });
-  }, [ready, pagination.totalPages, pagination.chapterPageRanges]);
+  }, [ready, pagination.totalPages, pagination.chapterPageRanges, chapterPageCounts]);
 
   return (
     <div ref={containerRef} className={`book-container ${themeClass}`}>
@@ -370,7 +390,7 @@ export default function EpubReaderView({
             useMouseEvents={!isMobile}
             usePortrait={isMobile}
             singlePage={isMobile}
-            flippingTime={isMobile ? 350 : 600}
+            flippingTime={isMobile ? 250 : 600}
             drawShadow={!isMobile}
             maxShadowOpacity={isMobile ? 0.15 : 0.25}
             showPageCorners={!isMobile}
@@ -385,14 +405,16 @@ export default function EpubReaderView({
             style={{}}
           >
             {pages.map((p) => {
-              const isNear = Math.abs(p.pageIndex - currentPage) <= LAZY_WINDOW
-                || Math.abs(p.pageIndex - startPage) <= LAZY_WINDOW;
+              const lazyWindow = isMobile ? LAZY_WINDOW_MOBILE : LAZY_WINDOW_DESKTOP;
+              const isNear = Math.abs(p.pageIndex - currentPage) <= lazyWindow
+                || Math.abs(p.pageIndex - startPage) <= lazyWindow;
               return (
                 <BookPage
                   key={p.pageIndex}
                   pageIndex={p.pageIndex}
                   chapterHtml={isNear ? (chapters[p.chapterIndex]?.html || '') : ''}
                   pageInChapter={p.pageInChapter}
+                  chapterPages={p.chapterPages}
                   pageWidth={contentWidth}
                   pageHeight={contentHeight}
                   pageNumber={p.pageIndex + 1}

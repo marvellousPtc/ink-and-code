@@ -249,6 +249,8 @@
     padding: 0;
     align-items: stretch;
     justify-content: stretch;
+    /* 消除移动端 300ms 触摸延迟，让翻页手势立即响应 */
+    touch-action: manipulation;
   }
 
   .book-frame {
@@ -269,6 +271,15 @@
   .book-page {
     background-image: none;
     border-radius: 0;
+    /* GPU 合成层：翻页动画的 transform 由 GPU 处理，不触发主线程重绘 */
+    will-change: transform;
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+  }
+
+  /* 内容层也提升为独立合成层，避免翻页时重绘内容 */
+  .epub-page-content {
+    transform: translateZ(0);
   }
 }
 

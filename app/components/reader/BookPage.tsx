@@ -4,6 +4,7 @@ interface BookPageProps {
   pageIndex: number;
   chapterHtml: string;        // 空字符串 = 远离当前页，渲染空白占位
   pageInChapter: number;
+  chapterPages: number;       // 该章节总页数，用于精确计算容器宽度
   pageWidth: number;
   pageHeight: number;
   pageNumber: number;
@@ -41,6 +42,7 @@ const BookPage = React.forwardRef<HTMLDivElement, BookPageProps>(
     {
       chapterHtml,
       pageInChapter,
+      chapterPages,
       pageWidth,
       pageHeight,
       pageNumber,
@@ -58,9 +60,14 @@ const BookPage = React.forwardRef<HTMLDivElement, BookPageProps>(
 
     const translateX = pageInChapter * pageWidth;
 
-    // 内容样式：极宽容器 + CSS 多列 + translateX 定位
+    // 容器列数：基于章节实际页数 + 2 缓冲，而非硬编码 200
+    // 原先 pageWidth * 200 = 78000px（手机端），浏览器要为全部列做排版计算
+    // 改为精确值后，一个 10 页的章节只需 pageWidth * 12 ≈ 4680px，计算量减少 95%
+    const containerColumns = Math.max(chapterPages, pageInChapter + 1) + 2;
+
+    // 内容样式：精确宽度容器 + CSS 多列 + translateX 定位
     const contentStyle = useMemo(() => ({
-      width: `${pageWidth * 200}px`,
+      width: `${pageWidth * containerColumns}px`,
       columnWidth: `${pageWidth}px`,
       columnGap: '0px',
       columnFill: 'auto' as const,
@@ -71,7 +78,7 @@ const BookPage = React.forwardRef<HTMLDivElement, BookPageProps>(
       wordWrap: 'break-word' as const,
       overflowWrap: 'break-word' as const,
       transform: translateX > 0 ? `translateX(-${translateX}px)` : undefined,
-    }), [pageWidth, pageHeight, fontSize, lineHeight, fontFamilyCss, translateX]);
+    }), [pageWidth, containerColumns, pageHeight, fontSize, lineHeight, fontFamilyCss, translateX]);
 
     return (
       <div
@@ -145,6 +152,7 @@ export default React.memo(BookPage, (prev, next) => {
   // 快速路径：chapterHtml 引用不变 → 跳过内容渲染比较
   if (prev.chapterHtml !== next.chapterHtml) return false;
   if (prev.pageIndex !== next.pageIndex) return false;
+  if (prev.chapterPages !== next.chapterPages) return false;
   if (prev.pageWidth !== next.pageWidth) return false;
   if (prev.pageHeight !== next.pageHeight) return false;
   if (prev.fontSize !== next.fontSize) return false;

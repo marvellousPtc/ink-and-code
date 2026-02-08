@@ -1,3 +1,12 @@
+/*
+ * :file description: 
+ * :name: /ink-and-code/app/components/ThemeCustomizer.tsx
+ * :author: PTC
+ * :copyright: (c) 2026, Tungee
+ * :date created: 2026-02-07 10:50:07
+ * :last editor: PTC
+ * :date last edited: 2026-02-08 02:51:35
+ */
 'use client';
 
 import { useState, useEffect } from 'react';
