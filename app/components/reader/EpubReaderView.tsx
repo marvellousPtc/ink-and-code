@@ -135,6 +135,10 @@ export default function EpubReaderView({
   const currentPageRef = useRef(0);
   /** 防抖定时器：控制懒渲染窗口的更新频率 */
   const lazyUpdateTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  /** 翻页队列：动画期间的翻页请求暂存，动画结束后立即执行 */
+  const flipQueueRef = useRef<'next' | 'prev' | null>(null);
+  /** 是否正在翻页动画中 */
+  const isFlippingRef = useRef(false);
 
   // 首次分页完成后设置正确的起始页
   useEffect(() => {
@@ -190,9 +194,9 @@ export default function EpubReaderView({
       const targetPage = e.data as number;
       flipTargetRef.current = targetPage;
       currentPageRef.current = targetPage;
+      isFlippingRef.current = true;
 
-      // 紧急保护：目标页超出或触及懒渲染窗口边缘时，立即更新防止空白
-      // setCurrentPage(prev => prev) 返回相同值时 React 自动跳过 re-render（零开销）
+      // 紧急保护：目标页触及懒渲染窗口边缘时，立即更新防止空白
       setCurrentPage(prev => {
         const lazyWindow = isMobile ? LAZY_WINDOW_MOBILE : LAZY_WINDOW_DESKTOP;
         if (Math.abs(targetPage - prev) >= lazyWindow) {
@@ -209,13 +213,24 @@ export default function EpubReaderView({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (e: any) => {
       if (e.data === 'read') {
+        isFlippingRef.current = false;
+
+        // ---- 翻页队列：立即执行排队中的翻页，不做任何 state 更新 ----
+        // 用户在动画期间点击/滑动时，请求暂存在 flipQueueRef。
+        // 动画结束立即执行，实现"连续翻"的流畅体验。
+        if (flipQueueRef.current) {
+          const queued = flipQueueRef.current;
+          flipQueueRef.current = null;
+          const pf = flipBookRef.current?.pageFlip();
+          if (pf) {
+            if (queued === 'next') pf.flipNext();
+            else pf.flipPrev();
+          }
+          return; // 这次不做 window/progress 更新，等新动画结束再处理
+        }
+
         const page = flipTargetRef.current;
         currentPageRef.current = page;
-
-        // !! 不在这里调用 onProgressUpdate !!
-        // 原因：onProgressUpdate → 父组件 setPercentage → 父组件 re-render
-        // → EpubReaderView（未 memo）re-render → 800 页 memo 比较 ~15ms
-        // 在手机端这 15ms 足以造成每次翻页的微卡顿
 
         if (lazyUpdateTimer.current) clearTimeout(lazyUpdateTimer.current);
 
@@ -230,9 +245,7 @@ export default function EpubReaderView({
 
         // 防抖 300ms：用户停止翻页后，一次性完成窗口居中 + 进度上报
         lazyUpdateTimer.current = setTimeout(() => {
-          // 1. 窗口居中
           setCurrentPage(prev => prev === page ? prev : page);
-          // 2. 上报进度（触发父组件 re-render，但此时用户已停止翻页，不影响体验）
           if (pagination.totalPages > 0) {
             const pct = Math.round((page / Math.max(1, pagination.totalPages - 1)) * 100);
             onProgressUpdate?.(pct, `page:${page}`);
@@ -272,6 +285,19 @@ export default function EpubReaderView({
   // 所有触摸交互由此自定义 handler 全权处理，避免双重触发。
   const touchStartRef = useRef<{ x: number; y: number; t: number } | null>(null);
 
+  /** 执行翻页，自动处理动画期间的排队 */
+  const doFlip = useCallback((direction: 'next' | 'prev') => {
+    const pf = flipBookRef.current?.pageFlip();
+    if (!pf) return;
+    if (isFlippingRef.current) {
+      // 动画进行中 → 排队，动画结束后 handleChangeState 会立即执行
+      flipQueueRef.current = direction;
+    } else {
+      if (direction === 'next') pf.flipNext();
+      else pf.flipPrev();
+    }
+  }, []);
+
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     if (!isMobile) return;
     const touch = e.touches[0];
@@ -288,35 +314,29 @@ export default function EpubReaderView({
     const absDy = Math.abs(dy);
     touchStartRef.current = null;
 
-    const pageFlip = flipBookRef.current?.pageFlip();
-    if (!pageFlip) return;
-
-    // 滑动翻页：水平 > 20px，主要水平方向，800ms 内
-    if (absDx > 20 && absDx > absDy * 0.8 && dt < 800) {
-      // preventDefault 阻止浏览器在 touchend 后合成 click 事件，
-      // 避免翻页动作冒泡到父级 handleToggleToolbar 导致 toolbar 反复出现/消失
+    // 滑动翻页：水平 ≥ 15px，主要水平方向，800ms 内
+    // 阈值从 20px 降到 15px，消除与点击之间的死区
+    if (absDx >= 15 && absDx > absDy * 0.8 && dt < 800) {
       e.preventDefault();
-      if (dx < 0) {
-        pageFlip.flipNext();
-      } else {
-        pageFlip.flipPrev();
-      }
+      doFlip(dx < 0 ? 'next' : 'prev');
       return;
     }
 
-    // 点击翻页：几乎没移动，时间短
-    if (absDx < 10 && absDy < 10 && dt < 300) {
+    // 点击翻页：移动 < 15px（从 10px 放宽，适应手指自然抖动），时间 < 400ms
+    if (absDx < 15 && absDy < 15 && dt < 400) {
       const tapX = touch.clientX;
-      if (tapX < containerSize.w * 0.35) {
-        e.preventDefault(); // 翻页操作：阻止合成 click，不触发 toolbar
-        pageFlip.flipPrev();
-      } else if (tapX > containerSize.w * 0.65) {
-        e.preventDefault(); // 翻页操作：阻止合成 click，不触发 toolbar
-        pageFlip.flipNext();
+      // 点击区域：左 25% → prev，右 25% → next，中间 50% → toolbar
+      // 从 35%/65% 改为 25%/75%，翻页区域更大更容易点到
+      if (tapX < containerSize.w * 0.25) {
+        e.preventDefault();
+        doFlip('prev');
+      } else if (tapX > containerSize.w * 0.75) {
+        e.preventDefault();
+        doFlip('next');
       }
-      // 中间 30%：不 preventDefault，click 自然冒泡到父组件切换 toolbar
+      // 中间 50%：不 preventDefault，click 自然冒泡到父组件切换 toolbar
     }
-  }, [isMobile, containerSize.w]);
+  }, [isMobile, containerSize.w, doFlip]);
 
   // ---- 主题 ----
   const theme = settings?.theme || 'light';
