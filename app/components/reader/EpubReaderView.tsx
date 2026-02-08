@@ -274,6 +274,9 @@ export default function EpubReaderView({
   // ---- 移动端：滑动 + 点击翻页手势 ----
   // 移动端完全禁用库的内置手势（swipeDistance=9999, disableFlipByClick, useMouseEvents=false），
   // 所有触摸交互由此自定义 handler 全权处理，避免双重触发。
+  //
+  // 灵敏度优化：滑动翻页在 onTouchMove 中检测（手指移动即触发），
+  // 不等 onTouchEnd（手指抬起）。节省 100-200ms 手势识别时间。
   const touchStartRef = useRef<{ x: number; y: number; t: number } | null>(null);
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
@@ -282,8 +285,30 @@ export default function EpubReaderView({
     touchStartRef.current = { x: touch.clientX, y: touch.clientY, t: Date.now() };
   }, [isMobile]);
 
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!isMobile || !touchStartRef.current) return;
+    const touch = e.touches[0];
+    const dx = touch.clientX - touchStartRef.current.x;
+    const dy = touch.clientY - touchStartRef.current.y;
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+
+    // 水平移动 ≥ 15px 且方向明确（水平 > 垂直 * 1.2）→ 立即翻页
+    // 在手指还在屏幕上时就触发，比等 touchEnd 快 100-200ms
+    if (absDx >= 15 && absDx > absDy * 1.2) {
+      e.preventDefault();
+      touchStartRef.current = null; // 标记已处理，touchEnd 不再重复触发
+      const pageFlip = flipBookRef.current?.pageFlip();
+      if (pageFlip) {
+        if (dx < 0) pageFlip.flipNext();
+        else pageFlip.flipPrev();
+      }
+    }
+  }, [isMobile]);
+
   const handleTouchEnd = useCallback((e: React.TouchEvent) => {
     if (!isMobile || !touchStartRef.current) return;
+    // touchMove 已处理滑动翻页，touchEnd 只处理点击翻页
     const touch = e.changedTouches[0];
     const dx = touch.clientX - touchStartRef.current.x;
     const dy = touch.clientY - touchStartRef.current.y;
@@ -292,20 +317,11 @@ export default function EpubReaderView({
     const absDy = Math.abs(dy);
     touchStartRef.current = null;
 
-    const pageFlip = flipBookRef.current?.pageFlip();
-    if (!pageFlip) return;
-
-    // 滑动翻页：水平 ≥ 15px，主要水平方向，800ms 内
-    if (absDx >= 15 && absDx > absDy * 0.8 && dt < 800) {
-      e.preventDefault();
-      if (dx < 0) pageFlip.flipNext();
-      else pageFlip.flipPrev();
-      return;
-    }
-
     // 点击翻页：移动 < 15px，时间 < 400ms
     if (absDx < 15 && absDy < 15 && dt < 400) {
       const tapX = touch.clientX;
+      const pageFlip = flipBookRef.current?.pageFlip();
+      if (!pageFlip) return;
       // 左 25% → prev，右 25% → next，中间 50% → toolbar
       if (tapX < containerSize.w * 0.25) {
         e.preventDefault();
@@ -438,6 +454,7 @@ export default function EpubReaderView({
             transition: 'opacity 0.3s ease-in',
           }}
           onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
         >
           {!isMobile && <div className="book-shadow" />}
@@ -459,7 +476,7 @@ export default function EpubReaderView({
             useMouseEvents={!isMobile}
             usePortrait={isMobile}
             singlePage={isMobile}
-            flippingTime={isMobile ? 150 : 600}
+            flippingTime={isMobile ? 100 : 600}
             drawShadow={!isMobile}
             maxShadowOpacity={isMobile ? 0.15 : 0.25}
             showPageCorners={!isMobile}
