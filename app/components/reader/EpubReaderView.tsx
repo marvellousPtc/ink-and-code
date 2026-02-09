@@ -205,41 +205,90 @@ export default function EpubReaderView({
     contentHeight,
   );
 
+  // ---- 章节文本长度（用于字符偏移量定位）----
+  // 提取每个章节的纯文本长度，构建全书字符偏移表。
+  // 进度存储为 "char:12345"（全书第 12345 个字符），设备无关。
+  const { chapterTextLengths, chapterCumOffsets, totalTextLength } = useMemo(() => {
+    const lengths: number[] = [];
+    const cumOffsets: number[] = [0];
+    let total = 0;
+    for (const ch of chapters) {
+      // 去除 HTML 标签，只保留纯文本，计算字符数
+      const textLen = ch.html.replace(/<[^>]*>/g, '').length;
+      lengths.push(textLen);
+      total += textLen;
+      cumOffsets.push(total);
+    }
+    return { chapterTextLengths: lengths, chapterCumOffsets: cumOffsets, totalTextLength: total };
+  }, [chapters]);
+
+  /** 页码 → 全书字符偏移量 */
+  const pageToCharOffset = useCallback((page: number): number => {
+    if (totalTextLength === 0 || pagination.totalPages === 0) return 0;
+    const info = getChapterForPage(page, pagination.chapterPageRanges);
+    if (!info) return 0;
+    const chIdx = info.chapterIndex;
+    const chPages = pagination.chapterPageRanges[chIdx]?.pageCount ?? 1;
+    const ratio = info.pageInChapter / Math.max(1, chPages);
+    return Math.round(chapterCumOffsets[chIdx] + ratio * chapterTextLengths[chIdx]);
+  }, [totalTextLength, pagination.totalPages, pagination.chapterPageRanges, chapterCumOffsets, chapterTextLengths]);
+
+  /** 全书字符偏移量 → 页码 */
+  const charOffsetToPage = useCallback((offset: number): number => {
+    if (totalTextLength === 0 || pagination.totalPages === 0 || offset <= 0) return 0;
+    // 二分查找：找到该偏移量所在的章节
+    let chIdx = 0;
+    for (let i = 1; i < chapterCumOffsets.length; i++) {
+      if (offset < chapterCumOffsets[i]) { chIdx = i - 1; break; }
+      chIdx = i - 1;
+    }
+    // 在章节内的比例 → 页内位置
+    const localOffset = offset - chapterCumOffsets[chIdx];
+    const chTextLen = chapterTextLengths[chIdx] || 1;
+    const ratio = Math.min(localOffset / chTextLen, 1);
+    const range = pagination.chapterPageRanges[chIdx];
+    if (!range) return 0;
+    const pageInChapter = Math.min(Math.round(ratio * range.pageCount), range.pageCount - 1);
+    return Math.min(range.startPage + pageInChapter, pagination.totalPages - 1);
+  }, [totalTextLength, pagination.totalPages, pagination.chapterPageRanges, chapterCumOffsets, chapterTextLengths]);
+
   // ---- 当前页 ----
-  // 解析保存的阅读进度：支持 "page:N/Total"（新格式）和 "page:N"（旧格式）
-  const { savedPage, savedTotal } = useMemo(() => {
-    if (!initialLocation || !initialLocation.startsWith('page:')) {
-      return { savedPage: 0, savedTotal: 0 };
+  // 解析保存的阅读进度：
+  //   "char:12345"  — 字符偏移（设备无关，最精确）
+  //   "page:N/Total" — 页码/总页数（旧格式兼容，按比例映射）
+  //   "page:N"       — 页码（更旧格式兼容）
+  const savedCharOffset = useMemo(() => {
+    if (!initialLocation) return 0;
+    if (initialLocation.startsWith('char:')) {
+      const parsed = parseInt(initialLocation.replace('char:', ''), 10);
+      return isNaN(parsed) || parsed < 0 ? 0 : parsed;
     }
-    const rest = initialLocation.replace('page:', '');
-    if (rest.includes('/')) {
-      const [p, t] = rest.split('/');
-      const page = parseInt(p, 10);
-      const total = parseInt(t, 10);
-      return {
-        savedPage: isNaN(page) || page < 0 ? 0 : page,
-        savedTotal: isNaN(total) || total <= 0 ? 0 : total,
-      };
+    // 兼容旧 page:N/Total 格式 → 转为比例
+    if (initialLocation.startsWith('page:')) {
+      const rest = initialLocation.replace('page:', '');
+      if (rest.includes('/')) {
+        const [p, t] = rest.split('/');
+        const page = parseInt(p, 10) || 0;
+        const total = parseInt(t, 10) || 0;
+        if (total > 0 && page > 0) {
+          // 用旧页码比例估算字符偏移
+          return Math.round((page / Math.max(1, total - 1)) * totalTextLength);
+        }
+      }
+      const page = parseInt(rest, 10) || 0;
+      // 无总页数参考，用当前总页数估算
+      if (page > 0 && pagination.totalPages > 0) {
+        return Math.round((page / Math.max(1, pagination.totalPages - 1)) * totalTextLength);
+      }
     }
-    const parsed = parseInt(rest, 10);
-    return { savedPage: isNaN(parsed) || parsed < 0 ? 0 : parsed, savedTotal: 0 };
-  }, [initialLocation]);
+    return 0;
+  }, [initialLocation, totalTextLength, pagination.totalPages]);
 
   const startPage = useMemo(() => {
     if (!pagination.isReady || pagination.totalPages === 0) return 0;
-    if (savedPage === 0) return 0;
-
-    if (savedTotal > 0 && savedTotal !== pagination.totalPages) {
-      // 跨分页恢复：总页数变了（设备/字号/行高不同），按比例映射
-      const ratio = savedPage / Math.max(1, savedTotal - 1);
-      return Math.min(
-        Math.round(ratio * (pagination.totalPages - 1)),
-        pagination.totalPages - 1,
-      );
-    }
-    // 同分页或旧格式：直接使用页码（clamp 到有效范围）
-    return Math.min(savedPage, pagination.totalPages - 1);
-  }, [pagination.isReady, pagination.totalPages, savedPage, savedTotal]);
+    if (savedCharOffset <= 0) return 0;
+    return charOffsetToPage(savedCharOffset);
+  }, [pagination.isReady, pagination.totalPages, savedCharOffset, charOffsetToPage]);
 
   // ---- 主题 & 排版设置（提前声明，供后续 effect 引用）----
   const theme = settings?.theme || 'light';
@@ -370,12 +419,14 @@ export default function EpubReaderView({
           pageStore.setPage(page);
           if (pagination.totalPages > 0) {
             const pct = Math.round((page / Math.max(1, pagination.totalPages - 1)) * 100);
-            onProgressUpdate?.(pct, `page:${page}/${pagination.totalPages}`);
+            // 存储字符偏移量（设备无关）：char:12345
+            const charOffset = pageToCharOffset(page);
+            onProgressUpdate?.(pct, `char:${charOffset}`);
           }
         }, 300);
       }
     },
-    [pagination.totalPages, onProgressUpdate, pageStore],
+    [pagination.totalPages, onProgressUpdate, pageStore, pageToCharOffset],
   );
 
   // 清理定时器
