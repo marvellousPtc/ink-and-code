@@ -3,6 +3,7 @@ import OSS from 'ali-oss';
 import { prisma } from '@/lib/prisma';
 import { requireAuth, ApiError } from '@/lib/api-response';
 import { extractEpubCover, extractEpubMetadata } from '@/lib/epub-cover';
+import { parseEpubContent, type OssConfig } from '@/lib/epub-parser';
 
 function hasDefaultOss() {
   return !!(
@@ -56,10 +57,14 @@ export async function POST(request: Request) {
       return ApiError.badRequest(`不支持的直传格式: ${format}，仅支持 ${validFormats.join('、')}`);
     }
 
-    // EPUB：从 OSS 下载文件提取封面和元数据
+    // EPUB：从 OSS 下载文件提取封面、元数据，并解析章节
     let coverUrl: string | null = null;
     let epubTitle: string | undefined;
     let epubAuthor: string | undefined;
+    // 保留 buffer/client/ossConfig 供后续章节解析使用
+    let epubBuffer: Buffer | null = null;
+    let ossClient: OSS | null = null;
+    let epubOssConfig: OssConfig | null = null;
 
     if (format === 'epub') {
       try {
@@ -77,7 +82,7 @@ export async function POST(request: Request) {
         const useDefaultOss = !hasUserOss && hasDefaultOss();
 
         if (hasUserOss || useDefaultOss) {
-          const ossConfig = useDefaultOss ? (() => {
+          const ossConfigRaw = useDefaultOss ? (() => {
             const cfg = getDefaultOssConfig();
             cfg.dir = `${cfg.dir}/${userId}`;
             return cfg;
@@ -91,15 +96,25 @@ export async function POST(request: Request) {
           };
 
           const client = new OSS({
-            region: ossConfig.region,
-            bucket: ossConfig.bucket,
-            accessKeyId: ossConfig.accessKeyId,
-            accessKeySecret: ossConfig.accessKeySecret,
+            region: ossConfigRaw.region,
+            bucket: ossConfigRaw.bucket,
+            accessKeyId: ossConfigRaw.accessKeyId,
+            accessKeySecret: ossConfigRaw.accessKeySecret,
           });
+
+          // 保留供后续章节解析使用
+          ossClient = client;
+          epubOssConfig = {
+            dir: ossConfigRaw.dir,
+            domain: ossConfigRaw.domain,
+            bucket: ossConfigRaw.bucket,
+            region: ossConfigRaw.region,
+          };
 
           // 下载 EPUB 文件
           const result = await client.get(objectName);
           const buffer = Buffer.isBuffer(result.content) ? result.content : Buffer.from(result.content);
+          epubBuffer = buffer;
 
           // 提取元数据
           const metadata = extractEpubMetadata(buffer);
@@ -113,12 +128,12 @@ export async function POST(request: Request) {
             await client.put(coverObjectName, cover.data, {
               headers: { 'Content-Type': cover.contentType },
             });
-            if (ossConfig.domain) {
-              const domain = (ossConfig.domain as string).replace(/\/$/, '');
+            if (ossConfigRaw.domain) {
+              const domain = (ossConfigRaw.domain as string).replace(/\/$/, '');
               coverUrl = `${domain}/${coverObjectName}`;
             } else {
-              const region = ossConfig.region.replace(/^oss-/, '');
-              coverUrl = `https://${ossConfig.bucket}.oss-${region}.aliyuncs.com/${coverObjectName}`;
+              const region = ossConfigRaw.region.replace(/^oss-/, '');
+              coverUrl = `https://${ossConfigRaw.bucket}.oss-${region}.aliyuncs.com/${coverObjectName}`;
             }
           }
         }
@@ -143,6 +158,35 @@ export async function POST(request: Request) {
         userId: userId!,
       },
     });
+
+    // EPUB：服务端解析章节并存入数据库
+    if (format === 'epub' && epubBuffer && ossClient && epubOssConfig) {
+      try {
+        const parseResult = await parseEpubContent(epubBuffer, book.id, ossClient, epubOssConfig);
+        await prisma.bookChapter.createMany({
+          data: parseResult.chapters.map(ch => ({
+            bookId: book.id,
+            chapterIndex: ch.index,
+            href: ch.href,
+            html: ch.html,
+            charOffset: ch.charOffset,
+            charLength: ch.charLength,
+          })),
+        });
+        await prisma.book.update({
+          where: { id: book.id },
+          data: {
+            totalChapters: parseResult.chapters.length,
+            totalCharacters: parseResult.totalCharacters,
+            epubStyles: parseResult.styles,
+            parsedAt: new Date(),
+          },
+        });
+        console.log(`[EPUB Confirm] 解析完成: bookId=${book.id}, ${parseResult.chapters.length} 章节, ${parseResult.totalCharacters} 字符`);
+      } catch (e) {
+        console.error('[EPUB Confirm] 章节解析失败（不影响上传）:', e);
+      }
+    }
 
     return NextResponse.json({
       code: 200,

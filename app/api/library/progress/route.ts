@@ -49,7 +49,7 @@ export async function POST(request: Request) {
     if (authError) return authError;
 
     const data = await request.json();
-    const { bookId, currentLocation, percentage, readTimeDelta } = data;
+    const { bookId, currentLocation, percentage, readTimeDelta, pageNumber, settingsFingerprint } = data;
 
     if (!bookId) {
       return ApiError.badRequest('缺少 bookId');
@@ -75,6 +75,8 @@ export async function POST(request: Request) {
         percentage: percentage || 0,
         lastReadAt: new Date(),
         totalReadTime: readTimeDelta || 0,
+        pageNumber: pageNumber ?? null,
+        settingsFingerprint: settingsFingerprint ?? null,
       },
       update: {
         ...(currentLocation !== undefined && { currentLocation }),
@@ -83,6 +85,8 @@ export async function POST(request: Request) {
         ...(readTimeDelta && {
           totalReadTime: { increment: readTimeDelta },
         }),
+        ...(pageNumber !== undefined && { pageNumber }),
+        ...(settingsFingerprint !== undefined && { settingsFingerprint }),
       },
     });
 

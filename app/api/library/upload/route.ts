@@ -3,6 +3,7 @@ import OSS from 'ali-oss';
 import { prisma } from '@/lib/prisma';
 import { requireAuth, ApiError } from '@/lib/api-response';
 import { extractEpubCover, extractEpubMetadata } from '@/lib/epub-cover';
+import { parseEpubContent, type OssConfig } from '@/lib/epub-parser';
 import { execFile } from 'child_process';
 import { writeFile, readFile, unlink, mkdtemp } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -330,6 +331,41 @@ export async function POST(request: Request) {
         userId: userId!,
       },
     });
+
+    // EPUB：服务端解析章节并存入数据库
+    if (format === 'epub') {
+      try {
+        const epubOssConfig: OssConfig = {
+          dir: ossConfig.dir,
+          domain: ossConfig.domain,
+          bucket: ossConfig.bucket,
+          region: ossConfig.region,
+        };
+        const parseResult = await parseEpubContent(buffer, book.id, client, epubOssConfig);
+        await prisma.bookChapter.createMany({
+          data: parseResult.chapters.map(ch => ({
+            bookId: book.id,
+            chapterIndex: ch.index,
+            href: ch.href,
+            html: ch.html,
+            charOffset: ch.charOffset,
+            charLength: ch.charLength,
+          })),
+        });
+        await prisma.book.update({
+          where: { id: book.id },
+          data: {
+            totalChapters: parseResult.chapters.length,
+            totalCharacters: parseResult.totalCharacters,
+            epubStyles: parseResult.styles,
+            parsedAt: new Date(),
+          },
+        });
+        console.log(`[EPUB Upload] 解析完成: bookId=${book.id}, ${parseResult.chapters.length} 章节, ${parseResult.totalCharacters} 字符`);
+      } catch (e) {
+        console.error('[EPUB Upload] 章节解析失败（不影响上传）:', e);
+      }
+    }
 
     return NextResponse.json({
       code: 200,

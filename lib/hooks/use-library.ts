@@ -417,7 +417,7 @@ export function useDeleteBook() {
 export function useSaveProgress() {
   const { trigger } = useSWRMutation(
     '/api/library/progress',
-    async (url: string, { arg }: { arg: { bookId: string; currentLocation?: string; percentage?: number; readTimeDelta?: number } }) => {
+    async (url: string, { arg }: { arg: { bookId: string; currentLocation?: string; percentage?: number; readTimeDelta?: number; pageNumber?: number; settingsFingerprint?: string } }) => {
       const res = await post(url, arg);
       return res.data;
     }

@@ -165,6 +165,7 @@ export default function ReaderPage({ params }: ReaderPageProps) {
           currentLocation: currentLocation || undefined,
           percentage,
           readTimeDelta: delta,
+          ...progressExtraRef.current,
         }).catch(console.error);
       }
     }, 30000);
@@ -189,6 +190,7 @@ export default function ReaderPage({ params }: ReaderPageProps) {
           currentLocation: loc,
           percentage: pct,
           readTimeDelta: delta,
+          ...progressExtraRef.current,
         })], { type: 'application/json' })
       );
     };
@@ -225,10 +227,33 @@ export default function ReaderPage({ params }: ReaderPageProps) {
     }
   }, [book?.progress]);
 
-  const handleProgressUpdate = useCallback((pct: number, loc?: string) => {
+  // 额外的进度数据（pageNumber + settingsFingerprint）
+  const progressExtraRef = useRef<{ pageNumber?: number; settingsFingerprint?: string }>({});
+  // 防抖保存定时器：翻页/设置变更后 1 秒内无新操作则保存到后端
+  const debounceSaveRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const handleProgressUpdate = useCallback((pct: number, loc?: string, extra?: { pageNumber?: number; settingsFingerprint?: string }) => {
     setPercentage(pct);
     if (loc) setCurrentLocation(loc);
-  }, []);
+    if (extra) progressExtraRef.current = extra;
+
+    // 防抖保存到后端：每次调用重置计时器，1 秒后执行
+    // 通过 ref 读取最新值，避免依赖 state 导致回调频繁重建
+    if (debounceSaveRef.current) clearTimeout(debounceSaveRef.current);
+    debounceSaveRef.current = setTimeout(() => {
+      const now = Date.now();
+      const delta = Math.floor((now - lastSaveRef.current) / 1000);
+      lastSaveRef.current = now;
+      const data = saveDataRef.current;
+      saveProgress({
+        bookId: data.id,
+        currentLocation: loc || data.currentLocation || undefined,
+        percentage: pct,
+        readTimeDelta: delta,
+        ...progressExtraRef.current,
+      }).catch(console.error);
+    }, 1000);
+  }, [saveProgress]);
 
   const handleToggleToolbar = useCallback(() => {
     setShowToolbar(prev => {
@@ -317,6 +342,7 @@ export default function ReaderPage({ params }: ReaderPageProps) {
   useEffect(() => {
     return () => {
       if (sliderTimerRef.current) clearTimeout(sliderTimerRef.current);
+      if (debounceSaveRef.current) clearTimeout(debounceSaveRef.current);
     };
   }, []);
 

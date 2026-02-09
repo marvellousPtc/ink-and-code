@@ -249,6 +249,12 @@ model Book {
   fileSize      Int       @map("file_size")      // 文件大小（字节）
   metadata      Json?                  // 出版社、ISBN 等附加信息
   
+  // 解析后的 EPUB 内容元数据
+  totalChapters   Int?      @map("total_chapters")    // 总章节数
+  totalCharacters Int?      @map("total_characters")  // 全书纯文本总字符数
+  epubStyles      String?   @db.Text @map("epub_styles") // 合并后的 CSS 样式
+  parsedAt        DateTime? @map("parsed_at")          // EPUB 解析完成时间
+  
   userId        String    @map("user_id")
   user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt     DateTime  @default(now()) @map("created_at")
@@ -257,9 +263,28 @@ model Book {
   progress      ReadingProgress[]
   bookmarks     Bookmark[]
   highlights    Highlight[]
+  chapters      BookChapter[]
 
   @@index([userId])
   @@map("books")
+}
+
+// EPUB 章节内容（服务端解析后存储，前端按需加载）
+model BookChapter {
+  id            String   @id @default(cuid())
+  bookId        String   @map("book_id")
+  book          Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  chapterIndex  Int      @map("chapter_index")  // 0-based 章节序号
+  href          String   @default("")            // EPUB 原始 href
+  html          String   @db.Text                // 章节 HTML 内容（图片 URL 已替换为 OSS）
+  charOffset    Int      @default(0) @map("char_offset")   // 该章节在全书中的字符起始偏移
+  charLength    Int      @default(0) @map("char_length")   // 该章节纯文本字符数
+  
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([bookId, chapterIndex])
+  @@index([bookId])
+  @@map("book_chapters")
 }
 
 // 阅读进度
@@ -274,6 +299,10 @@ model ReadingProgress {
   percentage      Float    @default(0)               // 0-100
   lastReadAt      DateTime @default(now()) @map("last_read_at")
   totalReadTime   Int      @default(0) @map("total_read_time") // 累计阅读秒数
+  
+  // 页码定位（EPUB 专用）
+  pageNumber          Int?    @map("page_number")          // 上次阅读的页码
+  settingsFingerprint String? @map("settings_fingerprint") // 页码对应的设置指纹（fontSize_lineHeight_fontFamily_pageWidth_pageHeight）
   
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")

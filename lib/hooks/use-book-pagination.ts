@@ -1,13 +1,15 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { ChapterData } from './use-epub-content';
+import type { ChapterData, ChapterMeta } from './use-server-chapters';
 import type { ReadingSettingsData } from './use-library';
 
 export interface ChapterPageRange {
   chapterIndex: number;
   startPage: number;
   pageCount: number;
+  /** 是否通过 CSS columns 精确测量（false = 估算值） */
+  measured: boolean;
 }
 
 export interface PaginationResult {
@@ -19,15 +21,23 @@ export interface PaginationResult {
 }
 
 /**
- * 利用 CSS 多列布局对章节内容进行分页测量
+ * 混合分页 Hook
  *
  * 原理：
- * 1. 为每个章节创建一个隐藏的测量容器，设置 column-width 与页面宽度相同
- * 2. 容器高度固定为页面高度，多余的内容会自动溢出为新的列
- * 3. 通过 scrollWidth / columnWidth 计算该章节的页数
+ * - 已加载的章节（html 非空）：用 CSS 多列布局精确测量页数
+ * - 未加载的章节（html 为空）：根据 charLength 估算页数
+ * - avgCharsPerPage 基于已测量章节动态校准，随着更多章节加载变得更准
+ *
+ * @param chapters       所有章节数据（未加载的 html 为空字符串）
+ * @param chaptersMeta   所有章节元数据（用于估算未加载章节的页数）
+ * @param styles         合并后的 EPUB CSS 样式
+ * @param settings       阅读设置（字号/行距/字体等）
+ * @param containerWidth 内容区域宽度（已减去 padding）
+ * @param containerHeight 内容区域高度（已减去 padding）
  */
 export function useBookPagination(
   chapters: ChapterData[],
+  chaptersMeta: ChapterMeta[],
   styles: string,
   settings: ReadingSettingsData | null | undefined,
   containerWidth: number,
@@ -95,11 +105,14 @@ export function useBookPagination(
         z-index: -1;
       `;
 
-      const ranges: ChapterPageRange[] = [];
-      let cumulativePages = 0;
+      // ---- 第一轮：精确测量已加载的章节 ----
+      const measuredRanges: { chapterIndex: number; pageCount: number; charLength: number }[] = [];
+      let totalMeasuredChars = 0;
+      let totalMeasuredPages = 0;
 
       for (let i = 0; i < chapters.length; i++) {
         const chapter = chapters[i];
+        if (!chapter.html) continue; // 跳过未加载的章节
 
         // 为每个章节设置测量容器
         measureEl.innerHTML = `
@@ -147,23 +160,66 @@ export function useBookPagination(
         if (!contentEl) continue;
 
         // 测量页数：scrollWidth 除以 columnWidth
-        // 减去 2px 容差，避免子像素渲染差异导致多出空白页
         const scrollW = contentEl.scrollWidth;
         const pageCount = Math.max(1, Math.ceil((scrollW - 2) / pageContentWidth));
 
-        ranges.push({
-          chapterIndex: i,
-          startPage: cumulativePages,
-          pageCount,
-        });
-
-        cumulativePages += pageCount;
+        const charLength = chaptersMeta[i]?.charLength ?? chapter.html.replace(/<[^>]*>/g, '').length;
+        measuredRanges.push({ chapterIndex: i, pageCount, charLength });
+        totalMeasuredChars += charLength;
+        totalMeasuredPages += pageCount;
       }
 
       // 清理测量容器内容
       measureEl.innerHTML = '';
 
-      console.log(`[Pagination] 分页完成: ${cumulativePages} 页, ${ranges.length} 章节, 内容区: ${pageContentWidth}x${pageContentHeight}`);
+      // ---- 计算 avgCharsPerPage（用于估算未加载章节） ----
+      // 基于已测量的章节动态校准；如果没有已测量的章节，使用估计值
+      const avgCharsPerPage = totalMeasuredPages > 0
+        ? totalMeasuredChars / totalMeasuredPages
+        : estimateCharsPerPage(fontSize, lineHeight, pageContentWidth, pageContentHeight);
+
+      // ---- 第二轮：构建完整的 chapterPageRanges ----
+      const ranges: ChapterPageRange[] = [];
+      let cumulativePages = 0;
+
+      // 构建已测量章节的查找表
+      const measuredMap = new Map(measuredRanges.map(r => [r.chapterIndex, r.pageCount]));
+
+      for (let i = 0; i < chapters.length; i++) {
+        const measuredPageCount = measuredMap.get(i);
+        let pageCount: number;
+        let measured: boolean;
+
+        if (measuredPageCount !== undefined) {
+          // 精确测量值
+          pageCount = measuredPageCount;
+          measured = true;
+        } else {
+          // 估算值：基于 charLength 和 avgCharsPerPage
+          const charLength = chaptersMeta[i]?.charLength ?? 0;
+          pageCount = charLength > 0
+            ? Math.max(1, Math.round(charLength / avgCharsPerPage))
+            : 1;
+          measured = false;
+        }
+
+        ranges.push({
+          chapterIndex: i,
+          startPage: cumulativePages,
+          pageCount,
+          measured,
+        });
+
+        cumulativePages += pageCount;
+      }
+
+      const measuredCount = measuredRanges.length;
+      const estimatedCount = chapters.length - measuredCount;
+      console.log(
+        `[Pagination] 分页完成: ${cumulativePages} 页 (${measuredCount} 精确 + ${estimatedCount} 估算), ` +
+        `${chapters.length} 章节, 内容区: ${pageContentWidth}x${pageContentHeight}, ` +
+        `avgCharsPerPage: ${Math.round(avgCharsPerPage)}`
+      );
 
       setResult({
         totalPages: cumulativePages,
@@ -174,7 +230,6 @@ export function useBookPagination(
       });
     } catch (err) {
       console.error('[Pagination] 分页失败:', err);
-      // 即使分页失败也要标记为就绪，避免无限加载
       setResult({
         totalPages: 0,
         chapterPageRanges: [],
@@ -183,16 +238,9 @@ export function useBookPagination(
         isReady: true,
       });
     }
-  }, [chapters, styles, fontSize, lineHeight, fontFamilyCss, pageContentWidth, pageContentHeight]);
+  }, [chapters, chaptersMeta, styles, fontSize, lineHeight, fontFamilyCss, pageContentWidth, pageContentHeight]);
 
   // 当内容或设置变化时重新分页
-  //
-  // 性能关键路径：
-  // 1. 设置变化 → 立即标记 isReady=false → UI 显示"排版中"遮罩
-  // 2. 150ms 防抖 → 避免滑块拖动时连续触发
-  // 3. requestAnimationFrame → 确保遮罩先绘制到屏幕，再执行阻塞式排版
-  //    （如果直接 paginate()，主线程被阻塞 100-500ms，遮罩根本没机会显示）
-  // 4. paginate() 完成 → isReady=true → 遮罩淡出，新排版淡入
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rafRef = useRef(0);
   const hasInitialized = useRef(false);
@@ -203,12 +251,10 @@ export function useBookPagination(
 
     // 首次加载不显示遮罩；设置变化后立即标记为"重排中"
     if (hasInitialized.current) {
-      // 同步 setState 是故意的：让消费者在 paginate() 阻塞主线程之前就能看到 isReady=false 并显示遮罩
       setResult(prev => prev.isReady ? { ...prev, isReady: false } : prev); // eslint-disable-line
     }
 
     debounceRef.current = setTimeout(() => {
-      // 用 rAF 推迟 paginate()，让浏览器先把"排版中"遮罩画上去
       rafRef.current = requestAnimationFrame(() => {
         hasInitialized.current = true;
         paginate();
@@ -232,6 +278,24 @@ export function useBookPagination(
   }, []);
 
   return result;
+}
+
+/**
+ * 根据排版参数估算每页字符数（无已测量数据时的 fallback）
+ */
+function estimateCharsPerPage(
+  fontSize: number,
+  lineHeight: number,
+  pageWidth: number,
+  pageHeight: number,
+): number {
+  // 粗略估算：
+  // 每行字符数 ≈ 页宽 / (字号 * 0.55)（中文字符约 1em 宽，英文约 0.55em）
+  // 行数 ≈ 页高 / (字号 * 行高)
+  // 取中英文混合的平均值
+  const charsPerLine = Math.floor(pageWidth / (fontSize * 0.7));
+  const linesPerPage = Math.floor(pageHeight / (fontSize * lineHeight));
+  return Math.max(100, charsPerLine * linesPerPage);
 }
 
 /**
