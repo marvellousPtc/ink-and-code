@@ -19,19 +19,12 @@ import BookPage from './BookPage';
 import './epub-reader.css';
 
 /**
- * 桌面端懒渲染窗口 ±6 = 覆盖 13 页。
- * 桌面端是双页模式，每次翻页跳 2 页，距离增长更快。
- * ±6 允许连续翻 3 次（跳 6 页）才触发一次窗口更新。
+ * 懒渲染窗口：只有当前页 ± WINDOW 范围内的页面才渲染真实 HTML。
+ * 翻页时 handleFlip 会立即同步 store，确保目标页始终在窗口内。
+ * 窗口大小决定"预加载缓冲区"——即使 React 调度有延迟，也有足够余量。
  */
-const LAZY_WINDOW_DESKTOP = 6;
-/**
- * 移动端懒渲染窗口 ±5 = 覆盖 11 页。
- * 配合"防抖 + 边缘预更新"策略：
- * - 正常翻页（距中心 < 4 页）：不触发 re-render，零抖动
- * - 接近窗口边缘（距中心 ≥ 4 页）：推迟到下一帧更新，避免阻塞触摸事件
- * - 用户停止翻页：300ms 后防抖把窗口居中
- */
-const LAZY_WINDOW_MOBILE = 5;
+const LAZY_WINDOW_DESKTOP = 20;
+const LAZY_WINDOW_MOBILE = 12;
 
 // ---- 页面状态外部存储 ----
 //
@@ -277,10 +270,8 @@ export default function EpubReaderView({
   const prevTotalRef = useRef(0);
   const flipTargetRef = useRef(0);
   const currentPageRef = useRef(0);
-  /** 防抖定时器：控制懒渲染窗口的更新频率 */
+  /** 防抖定时器：进度上报 */
   const lazyUpdateTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  /** rAF 句柄：边缘检查推迟到下一帧，避免阻塞触摸事件 */
-  const edgeCheckRaf = useRef(0);
 
   // 分页完成 → 更新 flipBookKey + showBook(false)，在同一个批次更新
   //
@@ -355,13 +346,11 @@ export default function EpubReaderView({
       flipTargetRef.current = targetPage;
       currentPageRef.current = targetPage;
 
-      // 紧急保护：目标页超出懒渲染窗口时立即更新 store
-      const prevPage = pageStore.getPage();
-      const lazyWindow = pageStore.getLazyWindow();
-      if (Math.abs(targetPage - prevPage) > lazyWindow) {
-        if (lazyUpdateTimer.current) clearTimeout(lazyUpdateTimer.current);
-        pageStore.setPage(targetPage);
-      }
+      // 每次翻页都同步 store，确保目标页的 isNear 立即为 true。
+      // useSyncExternalStore 的 getSnapshot 只做减法+比较（~0.5ms/800页），
+      // 只有 isNear 值变化的页面才会 re-render，不会有性能问题。
+      if (lazyUpdateTimer.current) clearTimeout(lazyUpdateTimer.current);
+      pageStore.setPage(targetPage);
     },
     [pageStore],
   );
@@ -373,20 +362,11 @@ export default function EpubReaderView({
         const page = flipTargetRef.current;
         currentPageRef.current = page;
 
+        // store 已由 handleFlip 立即同步，这里只需处理进度上报。
+        // 防抖 300ms：用户停止翻页后上报进度（避免连续翻页触发大量 API 请求）
         if (lazyUpdateTimer.current) clearTimeout(lazyUpdateTimer.current);
-
-        // ---- 边缘预更新：推迟到下一帧 ----
-        if (edgeCheckRaf.current) cancelAnimationFrame(edgeCheckRaf.current);
-        edgeCheckRaf.current = requestAnimationFrame(() => {
-          const prevPage = pageStore.getPage();
-          const lazyWindow = pageStore.getLazyWindow();
-          if (Math.abs(page - prevPage) >= lazyWindow - 1) {
-            pageStore.setPage(page);
-          }
-        });
-
-        // 防抖 300ms：用户停止翻页后，居中窗口 + 进度上报
         lazyUpdateTimer.current = setTimeout(() => {
+          // 确保 store 和当前页一致（兜底）
           pageStore.setPage(page);
           if (pagination.totalPages > 0) {
             const pct = Math.round((page / Math.max(1, pagination.totalPages - 1)) * 100);
@@ -402,7 +382,6 @@ export default function EpubReaderView({
   useEffect(() => {
     return () => {
       if (lazyUpdateTimer.current) clearTimeout(lazyUpdateTimer.current);
-      if (edgeCheckRaf.current) cancelAnimationFrame(edgeCheckRaf.current);
     };
   }, []);
 
