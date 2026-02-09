@@ -182,10 +182,10 @@
     );
 }
 
-/* 内容层提升为独立合成层，避免翻页时重绘文字内容 */
-.epub-page-content {
-  transform: translateZ(0);
-}
+/* 内容层 GPU 加速由父级 .book-page 的 will-change: transform 提供。
+ * 不要在这里单独设置 transform: translateZ(0)，否则会与 CSS 多列布局冲突：
+ * WebKit/Safari 中，transform 会创建独立的渲染层，可能导致列内容不绘制。
+ * BookPage 的 inline style 已包含 translateX 定位，无需额外的 GPU 提升。 */
 
 /* 深色主题页面 */
 .book-theme-dark .book-page {

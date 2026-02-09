@@ -172,40 +172,50 @@ export default function ReaderPage({ params }: ReaderPageProps) {
     return () => clearInterval(interval);
   }, [book, id, percentage, currentLocation, saveProgress]);
 
-  // 页面关闭/隐藏时保存
-  // - beforeunload: 桌面端关闭标签页/窗口
-  // - visibilitychange: 移动端切换 App / 切换标签页（移动端 beforeunload 不可靠）
-  // - pagehide: 部分浏览器的兜底
+  // ---- 离开页面时保存进度 ----
+  // 使用 ref 持有最新值，避免 useEffect 闭包捕获过期数据
+  const saveDataRef = useRef({ book, id, percentage, currentLocation });
+  saveDataRef.current = { book, id, percentage, currentLocation };
+
   useEffect(() => {
     const doSave = () => {
-      if (!book || (!currentLocation && percentage <= 0)) return;
+      const { book: b, id: bookId, percentage: pct, currentLocation: loc } = saveDataRef.current;
+      if (!b || (!loc && pct <= 0)) return;
       const delta = Math.floor((Date.now() - lastSaveRef.current) / 1000);
       navigator.sendBeacon(
         '/api/library/progress',
         new Blob([JSON.stringify({
-          bookId: id,
-          currentLocation,
-          percentage,
+          bookId,
+          currentLocation: loc,
+          percentage: pct,
           readTimeDelta: delta,
         })], { type: 'application/json' })
       );
     };
 
+    // beforeunload: 桌面端关闭标签页/窗口
     const handleBeforeUnload = () => doSave();
+    // visibilitychange: 移动端切 App / 切标签页
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') doSave();
     };
+    // pagehide: 兜底
     const handlePageHide = () => doSave();
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('pagehide', handlePageHide);
+
+    // 组件卸载时保存（SPA 路由跳转触发，如点击返回按钮 router.push）
     return () => {
+      doSave();
       window.removeEventListener('beforeunload', handleBeforeUnload);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('pagehide', handlePageHide);
     };
-  }, [book, id, percentage, currentLocation]);
+  // 空依赖：只在 mount/unmount 时运行，通过 ref 读取最新值
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 恢复进度
   useEffect(() => {

@@ -117,7 +117,8 @@ const BookPage = React.forwardRef<HTMLDivElement, BookPageProps>(
       fontFamily: fontFamilyCss,
       wordWrap: 'break-word' as const,
       overflowWrap: 'break-word' as const,
-      transform: translateX > 0 ? `translateX(-${translateX}px)` : undefined,
+      // 始终设置 transform，避免 CSS class 中残留的 transform 属性干扰列布局
+      transform: `translateX(-${translateX}px)`,
     }), [pageWidth, containerColumns, pageHeight, fontSize, lineHeight, fontFamilyCss, translateX]);
 
     return (
