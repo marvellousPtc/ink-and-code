@@ -87,6 +87,8 @@ interface EpubReaderViewProps {
   onProgressUpdate?: (percentage: number, location?: string, extra?: { pageNumber?: number; settingsFingerprint?: string }) => void;
   onAddBookmark?: (location: string, title?: string) => void;
   onAddHighlight?: (text: string, location: string, color?: string) => void;
+  /** 书页完全渲染到正确位置后触发，父组件可据此隐藏全局 loading */
+  onReady?: () => void;
 }
 
 function parseInitialCharOffset(initialLocation?: string): number {
@@ -103,6 +105,7 @@ export default function EpubReaderView({
   initialLocation,
   settings,
   onProgressUpdate,
+  onReady,
 }: EpubReaderViewProps) {
   // ---- 容器尺寸 ----
   const containerRef = useRef<HTMLDivElement>(null);
@@ -333,8 +336,10 @@ export default function EpubReaderView({
   }, [pagination.isReady, pagination.totalPages, startPage, pageDimensions.pageW, pageDimensions.pageH, fontSize, lineHeightVal, fontFamily, pageStore, settingsFingerprint, pageToCharOffset, doRemount]);
 
   // FlipBook remount 后 → 跳转到正确页码 → 淡入
-  // windowStart 在 doRemount 中已同步设置，此处通过闭包捕获最新值
   const windowStartForEffect = windowStart;
+  const onReadyRef = useRef(onReady);
+  useEffect(() => { onReadyRef.current = onReady; }, [onReady]);
+
   useEffect(() => {
     if (!flipBookKey) return;
     const timer = setTimeout(() => {
@@ -345,6 +350,8 @@ export default function EpubReaderView({
       }
       pageStore.setPage(globalPage);
       setShowBook(true);
+      // 通知父组件：书页已就绪，可以隐藏全局 loading
+      onReadyRef.current?.();
     }, 300);
     return () => clearTimeout(timer);
   }, [flipBookKey, pageStore, windowStartForEffect]);

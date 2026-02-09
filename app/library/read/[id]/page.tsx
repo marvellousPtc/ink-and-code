@@ -40,13 +40,16 @@ export default function ReaderPage({ params }: ReaderPageProps) {
 
   // ---- 首次加载保护 ----
   // SWR 可能先返回缓存的旧进度（stale），再验证得到最新进度。
-  // 如果用旧进度初始化阅读器，会看到先跳到旧页码再跳到新页码。
-  // 解决：首次打开时，等 SWR 验证完成（isValidating=false）后再渲染阅读器。
+  // 解决：等 SWR 验证完成后才渲染阅读器（dataReady）。
+  // 同时保持一个全屏遮罩直到 EpubReaderView 发出 onReady（readerReady），
+  // 避免 loading → 排版中 → 空白页 → 正确页 的多次跳动。
   const initialLoadDoneRef = useRef(false);
   if (!isValidating && book) {
     initialLoadDoneRef.current = true;
   }
   const dataReady = initialLoadDoneRef.current && !!book;
+  const [readerReady, setReaderReady] = useState(false);
+  const handleReaderReady = useCallback(() => setReaderReady(true), []);
 
   const [showToolbar, setShowToolbar] = useState(true);
   const [showSidebar, setShowSidebar] = useState<'toc' | 'bookmarks' | 'highlights' | 'settings' | null>(null);
@@ -356,7 +359,7 @@ export default function ReaderPage({ params }: ReaderPageProps) {
     };
   }, []);
 
-  if (isLoading || !dataReady) {
+  if (isLoading) {
     return (
       <div className="fixed inset-0 bg-background flex items-center justify-center z-50">
         <div className="flex flex-col items-center gap-4">
@@ -428,7 +431,7 @@ export default function ReaderPage({ params }: ReaderPageProps) {
               </div>
             </div>
           )}
-          {format === 'epub' && (
+          {format === 'epub' && dataReady && (
             <EpubReaderView
               url={directUrl}
               bookId={id}
@@ -437,6 +440,7 @@ export default function ReaderPage({ params }: ReaderPageProps) {
               onProgressUpdate={handleProgressUpdate}
               onAddBookmark={handleAddBookmark}
               onAddHighlight={handleAddHighlight}
+              onReady={handleReaderReady}
             />
           )}
           {format === 'pdf' && (
@@ -837,6 +841,45 @@ export default function ReaderPage({ params }: ReaderPageProps) {
           {Math.round(percentage)}%
         </span>
       </div>
+
+      {/* ---- 全屏加载遮罩 ----
+        覆盖在所有内容之上，直到 EpubReaderView 发出 onReady 信号。
+        避免 SWR 验证 → 排版 → 渲染过程中暴露中间状态。
+        用户只看到一个加载画面 → 书页直接出现在正确位置。
+      */}
+      {format === 'epub' && !readerReady && (
+        <div
+          className="fixed inset-0 z-100 flex flex-col items-center justify-center"
+          style={{
+            background: readerTheme === 'dark'
+              ? 'rgb(26,23,20)'
+              : readerTheme === 'sepia'
+              ? 'rgb(228,216,191)'
+              : 'rgb(250,247,242)',
+          }}
+        >
+          <Loader2
+            className="w-6 h-6 animate-spin mb-3"
+            style={{
+              color: readerTheme === 'dark'
+                ? 'rgba(200,192,184,0.4)'
+                : 'rgba(80,60,30,0.25)',
+            }}
+          />
+          <span
+            className="text-xs"
+            style={{
+              fontFamily: 'Georgia, "Times New Roman", "Songti SC", serif',
+              letterSpacing: '1px',
+              color: readerTheme === 'dark'
+                ? 'rgba(200,192,184,0.4)'
+                : 'rgba(80,60,30,0.25)',
+            }}
+          >
+            {!dataReady ? '正在加载…' : '排版中…'}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
