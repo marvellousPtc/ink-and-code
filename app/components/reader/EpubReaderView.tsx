@@ -177,16 +177,40 @@ export default function EpubReaderView({
   );
 
   // ---- 当前页 ----
-  const initialPage = useMemo(() => {
-    if (!initialLocation || !initialLocation.startsWith('page:')) return 0;
-    const parsed = parseInt(initialLocation.replace('page:', ''), 10);
-    return isNaN(parsed) || parsed < 0 ? 0 : parsed;
+  // 解析保存的阅读进度：支持 "page:N/Total"（新格式）和 "page:N"（旧格式）
+  const { savedPage, savedTotal } = useMemo(() => {
+    if (!initialLocation || !initialLocation.startsWith('page:')) {
+      return { savedPage: 0, savedTotal: 0 };
+    }
+    const rest = initialLocation.replace('page:', '');
+    if (rest.includes('/')) {
+      const [p, t] = rest.split('/');
+      const page = parseInt(p, 10);
+      const total = parseInt(t, 10);
+      return {
+        savedPage: isNaN(page) || page < 0 ? 0 : page,
+        savedTotal: isNaN(total) || total <= 0 ? 0 : total,
+      };
+    }
+    const parsed = parseInt(rest, 10);
+    return { savedPage: isNaN(parsed) || parsed < 0 ? 0 : parsed, savedTotal: 0 };
   }, [initialLocation]);
 
   const startPage = useMemo(() => {
-    if (!pagination.isReady) return 0;
-    return Math.min(initialPage, Math.max(0, pagination.totalPages - 1));
-  }, [pagination.isReady, pagination.totalPages, initialPage]);
+    if (!pagination.isReady || pagination.totalPages === 0) return 0;
+    if (savedPage === 0) return 0;
+
+    if (savedTotal > 0 && savedTotal !== pagination.totalPages) {
+      // 跨分页恢复：总页数变了（设备/字号/行高不同），按比例映射
+      const ratio = savedPage / Math.max(1, savedTotal - 1);
+      return Math.min(
+        Math.round(ratio * (pagination.totalPages - 1)),
+        pagination.totalPages - 1,
+      );
+    }
+    // 同分页或旧格式：直接使用页码（clamp 到有效范围）
+    return Math.min(savedPage, pagination.totalPages - 1);
+  }, [pagination.isReady, pagination.totalPages, savedPage, savedTotal]);
 
   // ---- 主题 & 排版设置（提前声明，供后续 effect 引用）----
   const theme = settings?.theme || 'light';
@@ -329,7 +353,7 @@ export default function EpubReaderView({
           pageStore.setPage(page);
           if (pagination.totalPages > 0) {
             const pct = Math.round((page / Math.max(1, pagination.totalPages - 1)) * 100);
-            onProgressUpdate?.(pct, `page:${page}`);
+            onProgressUpdate?.(pct, `page:${page}/${pagination.totalPages}`);
           }
         }, 300);
       }
