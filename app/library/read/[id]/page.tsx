@@ -4,7 +4,7 @@ import { use, useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft, BookOpen, List, Settings, Bookmark, Highlighter,
-  ChevronLeft, ChevronRight, Loader2, X, Moon, Sun, Type,
+  Loader2, X, Moon, Sun, Type,
   Maximize, Minimize
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
@@ -231,40 +231,67 @@ export default function ReaderPage({ params }: ReaderPageProps) {
     mutateHighlights();
   }, [id, addHighlight, mutateHighlights]);
 
-  // ---- 设置变更（按钮类：立即生效） ----
-  const handleSettingsChange = useCallback(async (key: string, value: number | string) => {
-    // 乐观更新 SWR 缓存，立即反映到 UI
-    mutateSettings((prev: ReadingSettingsData | undefined) => prev ? { ...prev, [key]: value } : prev, false);
-    await saveSettings({ [key]: value } as Partial<ReadingSettingsData>);
-    mutateSettings();
-  }, [saveSettings, mutateSettings]);
+  // ---- 设置管理 ----
+  // 使用 local state 作为主控源，解耦 SWR 依赖。
+  // 好处：
+  // 1. 不依赖 SWR 加载完成 → 页面打开即可使用默认设置
+  // 2. 不依赖登录/API → 未登录用户设置也能生效
+  // 3. 按钮/滑块操作立即生效，无需等 SWR cache 更新
+  const DEFAULT_SETTINGS: ReadingSettingsData = {
+    id: '', fontSize: 16, fontFamily: 'system', lineHeight: 1.8, theme: 'light', pageWidth: 800,
+  };
 
-  // ---- 滑块变更（防抖：拖动时只更新显示值，释放后才触发保存 + 重排版） ----
-  const [sliderOverrides, setSliderOverrides] = useState<Partial<ReadingSettingsData>>({});
+  const [localSettings, setLocalSettings] = useState<ReadingSettingsData>(DEFAULT_SETTINGS);
+  const settingsInitialized = useRef(false);
   const sliderTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  // 合并后的设置（用于滑块显示值）
-  const displaySettings = useMemo(() => {
-    if (!settings) return null;
-    return { ...settings, ...sliderOverrides } as ReadingSettingsData;
-  }, [settings, sliderOverrides]);
+  // 从服务器初始化一次
+  useEffect(() => {
+    if (settings && !settingsInitialized.current) {
+      settingsInitialized.current = true;
+      setLocalSettings(settings);
+    }
+  }, [settings]);
 
-  // 传给 reader 的设置（只在防抖结束后才更新，避免拖滑块时不停重排版）
-  const readerSettings = settings;
+  // 显示用的设置 = local state（始终有值，不会是 null）
+  const displaySettings = localSettings;
 
+  // 传给 reader 的设置（按钮类立即生效，滑块类防抖后生效）
+  const [readerSettings, setReaderSettings] = useState<ReadingSettingsData>(DEFAULT_SETTINGS);
+  useEffect(() => {
+    if (settings && !settingsInitialized.current) {
+      setReaderSettings(settings);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings]);
+
+  // 按钮类设置（主题、字体）：立即更新 display + reader
+  const handleSettingsChange = useCallback(async (key: string, value: number | string) => {
+    const patch = { [key]: value };
+    setLocalSettings(prev => ({ ...prev, ...patch }));
+    setReaderSettings(prev => ({ ...prev, ...patch }));
+    try {
+      await saveSettings(patch as Partial<ReadingSettingsData>);
+      mutateSettings();
+    } catch (e) {
+      console.error('Failed to sync settings:', e);
+    }
+  }, [saveSettings, mutateSettings]);
+
+  // 滑块类设置（字号、行高、页宽）：立即更新显示，防抖更新 reader + 服务器
   const handleSliderChange = useCallback((key: string, value: number | string) => {
-    // 立即更新滑块显示值
-    setSliderOverrides(prev => ({ ...prev, [key]: value }));
+    setLocalSettings(prev => ({ ...prev, [key]: value }));
 
-    // 防抖：500ms 后才保存到服务器并更新 reader
     if (sliderTimerRef.current) clearTimeout(sliderTimerRef.current);
     sliderTimerRef.current = setTimeout(async () => {
-      setSliderOverrides({});
-      // 乐观更新 SWR 缓存
-      mutateSettings((prev: ReadingSettingsData | undefined) => prev ? { ...prev, [key]: value } : prev, false);
-      await saveSettings({ [key]: value } as Partial<ReadingSettingsData>);
-      mutateSettings();
-    }, 500);
+      setReaderSettings(prev => ({ ...prev, [key]: value }));
+      try {
+        await saveSettings({ [key]: value } as Partial<ReadingSettingsData>);
+        mutateSettings();
+      } catch (e) {
+        console.error('Failed to sync settings:', e);
+      }
+    }, 400);
   }, [saveSettings, mutateSettings]);
 
   // 清理防抖定时器
@@ -299,7 +326,7 @@ export default function ReaderPage({ params }: ReaderPageProps) {
     );
   }
 
-  const readerTheme = settings?.theme || 'light';
+  const readerTheme = localSettings.theme || 'light';
   // 通过代理 API 获取文件，避免 CORS 问题
   const proxyUrl = `/api/library/file?id=${id}`;
   // EPUB 和 PDF 需要直接访问 OSS URL（二进制格式需要完整 URL）
@@ -313,10 +340,17 @@ export default function ReaderPage({ params }: ReaderPageProps) {
     <div
       ref={containerElRef}
       className={`fixed inset-0 z-50 ${
-        readerTheme === 'dark' ? 'bg-[#1a1a1a] text-[#ccc]' :
-        readerTheme === 'sepia' ? 'bg-[#f4ecd8] text-[#5b4636]' :
-        'bg-white text-[#333]'
+        readerTheme === 'dark' ? 'text-[#c8c0b8]' :
+        readerTheme === 'sepia' ? 'text-[#5b4636]' :
+        'text-[#3d3428]'
       }`}
+      style={{
+        background: readerTheme === 'dark'
+          ? 'radial-gradient(ellipse at 50% 45%, #1e1a16 0%, #161310 65%, #100e0b 100%)'
+          : readerTheme === 'sepia'
+          ? 'radial-gradient(ellipse at 50% 45%, #e5d9c0 0%, #ddd0b4 65%, #d4c5a5 100%)'
+          : 'radial-gradient(ellipse at 50% 45%, #ece6dc 0%, #e4ddd2 65%, #dbd3c6 100%)'
+      }}
     >
       {/* 阅读区域 — 占满全屏（移动端翻页区域是整个屏幕） */}
       <div className="absolute inset-0" onClick={handleToggleToolbar}>
@@ -373,59 +407,64 @@ export default function ReaderPage({ params }: ReaderPageProps) {
       {/* 顶部工具栏 — 浮动在阅读区域上方 */}
       <div
         onPointerDown={resetAutoHide}
-        className={`absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 h-12 border-b transition-all duration-300 ${
+        className={`absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-5 h-12 transition-all duration-300 backdrop-blur-xl ${
           showToolbar ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0 pointer-events-none'
         } ${
-          readerTheme === 'dark' ? 'bg-[#222]/95 border-[#333] backdrop-blur-sm' :
-          readerTheme === 'sepia' ? 'bg-[#ede0c8]/95 border-[#d4c5a9] backdrop-blur-sm' :
-          'bg-gray-50/95 border-gray-200 backdrop-blur-sm'
+          readerTheme === 'dark'
+            ? 'bg-[#1e1a16]/75 border-b border-white/6'
+            : readerTheme === 'sepia'
+            ? 'bg-[#e8dcc4]/75 border-b border-[#c9b894]/25'
+            : 'bg-[#f5f0e8]/75 border-b border-[#d4c5ae]/20'
         }`}
+        style={{
+          boxShadow: readerTheme === 'dark'
+            ? '0 1px 12px rgba(0,0,0,0.25)'
+            : '0 1px 12px rgba(120,100,70,0.06)'
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.push('/library')}
-            className="p-1.5 rounded-lg hover:bg-black/5 transition-colors"
+            className={`p-1.5 rounded-lg transition-colors ${
+              readerTheme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/5'
+            }`}
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <span className="text-sm font-medium truncate max-w-[120px] sm:max-w-md">
+          <span
+            className="text-sm font-medium truncate max-w-[120px] sm:max-w-md opacity-80"
+            style={{ fontFamily: 'Georgia, "Times New Roman", "Songti SC", serif' }}
+          >
             {book.title}
           </span>
         </div>
 
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setShowSidebar(showSidebar === 'toc' ? null : 'toc')}
-            className={`p-2 rounded-lg transition-colors ${showSidebar === 'toc' ? 'bg-primary/10 text-primary' : 'hover:bg-black/5'}`}
-            title="目录"
-          >
-            <List className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setShowSidebar(showSidebar === 'bookmarks' ? null : 'bookmarks')}
-            className={`p-2 rounded-lg transition-colors ${showSidebar === 'bookmarks' ? 'bg-primary/10 text-primary' : 'hover:bg-black/5'}`}
-            title="书签"
-          >
-            <Bookmark className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setShowSidebar(showSidebar === 'highlights' ? null : 'highlights')}
-            className={`p-2 rounded-lg transition-colors ${showSidebar === 'highlights' ? 'bg-primary/10 text-primary' : 'hover:bg-black/5'}`}
-            title="划线笔记"
-          >
-            <Highlighter className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setShowSidebar(showSidebar === 'settings' ? null : 'settings')}
-            className={`p-2 rounded-lg transition-colors ${showSidebar === 'settings' ? 'bg-primary/10 text-primary' : 'hover:bg-black/5'}`}
-            title="设置"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
+        <div className="flex items-center gap-0.5">
+          {([
+            { key: 'toc', icon: List, title: '目录' },
+            { key: 'bookmarks', icon: Bookmark, title: '书签' },
+            { key: 'highlights', icon: Highlighter, title: '划线笔记' },
+            { key: 'settings', icon: Settings, title: '设置' },
+          ] as const).map(({ key, icon: Icon, title }) => (
+            <button
+              key={key}
+              onClick={() => setShowSidebar(showSidebar === key ? null : key)}
+              className={`p-2 rounded-lg transition-colors ${
+                showSidebar === key
+                  ? 'bg-primary/10 text-primary'
+                  : readerTheme === 'dark' ? 'hover:bg-white/10 opacity-70' : 'hover:bg-black/5 opacity-60'
+              }`}
+              title={title}
+            >
+              <Icon className="w-4 h-4" />
+            </button>
+          ))}
           <button
             onClick={toggleFullscreen}
-            className="p-2 rounded-lg transition-colors hover:bg-black/5 hidden sm:flex items-center justify-center"
+            className={`p-2 rounded-lg transition-colors hidden sm:flex items-center justify-center ${
+              readerTheme === 'dark' ? 'hover:bg-white/10 opacity-70' : 'hover:bg-black/5 opacity-60'
+            }`}
             title={isFullscreen ? '退出全屏 (F)' : '沉浸阅读 (F)'}
           >
             {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
@@ -444,13 +483,18 @@ export default function ReaderPage({ params }: ReaderPageProps) {
           <div
             className={`
               fixed inset-y-0 right-0 w-[85vw] max-w-80 z-50
-              border-l shrink-0 flex flex-col overflow-hidden
+              border-l shrink-0 flex flex-col overflow-hidden backdrop-blur-xl
               ${
-                readerTheme === 'dark' ? 'bg-[#1e1e1e] border-[#333]' :
-                readerTheme === 'sepia' ? 'bg-[#ede0c8] border-[#d4c5a9]' :
-                'bg-gray-50 border-gray-200'
+                readerTheme === 'dark' ? 'bg-[#1e1a16]/95 border-white/6' :
+                readerTheme === 'sepia' ? 'bg-[#e8dcc4]/95 border-[#c9b894]/25' :
+                'bg-[#f5f0e8]/95 border-[#d4c5ae]/20'
               }
             `}
+            style={{
+              boxShadow: readerTheme === 'dark'
+                ? '-4px 0 24px rgba(0,0,0,0.3)'
+                : '-4px 0 24px rgba(120,100,70,0.08)'
+            }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-inherit">
@@ -524,97 +568,158 @@ export default function ReaderPage({ params }: ReaderPageProps) {
                 </div>
               )}
 
-              {showSidebar === 'settings' && displaySettings && (
-                <div className="space-y-6">
-                  {/* 主题 */}
+              {showSidebar === 'settings' && (
+                <div className="space-y-7">
+                  {/* ---- 主题选择 ---- */}
                   <div>
-                    <label className="text-xs font-bold uppercase tracking-wider opacity-50 mb-3 block">主题</label>
-                    <div className="flex gap-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.15em] opacity-35 mb-3"
+                      style={{ fontFamily: 'Georgia, serif' }}>阅读主题</div>
+                    <div className="flex gap-3 justify-center">
                       {[
-                        { value: 'light', icon: Sun, label: '白天', bg: 'bg-white border-gray-300' },
-                        { value: 'sepia', icon: Type, label: '羊皮纸', bg: 'bg-[#f4ecd8] border-[#d4c5a9]' },
-                        { value: 'dark', icon: Moon, label: '夜间', bg: 'bg-[#1a1a1a] border-[#444]' },
-                      ].map(({ value, label, bg }) => (
+                        { value: 'light', label: '日光', pageBg: '#faf7f2', textColor: '#2d2518', outerBg: '#e4ddd2' },
+                        { value: 'sepia', label: '暖黄', pageBg: '#f4ecd8', textColor: '#4a3828', outerBg: '#d4c5a5' },
+                        { value: 'dark', label: '夜间', pageBg: '#282420', textColor: '#c8c0b8', outerBg: '#161310' },
+                      ].map(({ value, label, pageBg, textColor, outerBg }) => (
                         <button
                           key={value}
                           onClick={() => handleSettingsChange('theme', value)}
-                          className={`flex-1 py-2 rounded-lg text-xs font-medium border-2 transition-all ${bg} ${
-                            displaySettings.theme === value ? 'ring-2 ring-primary ring-offset-1' : ''
+                          className={`flex flex-col items-center gap-1.5 transition-all ${
+                            displaySettings.theme === value ? 'scale-105' : 'opacity-60 hover:opacity-80'
                           }`}
                         >
-                          <span className={value === 'dark' ? 'text-gray-300' : value === 'sepia' ? 'text-[#5b4636]' : 'text-gray-700'}>
-                            {label}
-                          </span>
+                          {/* 迷你书页预览 */}
+                          <div
+                            className="w-14 h-[72px] rounded-md overflow-hidden relative"
+                            style={{
+                              background: outerBg,
+                              boxShadow: displaySettings.theme === value
+                                ? `0 0 0 2px ${value === 'dark' ? '#8a7050' : '#c49a6c'}, 0 2px 8px rgba(0,0,0,0.15)`
+                                : '0 1px 4px rgba(0,0,0,0.1)',
+                            }}
+                          >
+                            <div
+                              className="absolute inset-[4px] rounded-sm flex flex-col justify-center items-center gap-[3px] px-1.5"
+                              style={{ background: pageBg }}
+                            >
+                              {[1, 0.7, 0.9, 0.5, 0.8].map((w, i) => (
+                                <div key={i} className="rounded-full" style={{
+                                  width: `${w * 100}%`, height: '2px',
+                                  background: textColor, opacity: 0.25,
+                                }} />
+                              ))}
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-medium opacity-60">{label}</span>
                         </button>
                       ))}
                     </div>
                   </div>
 
-                  {/* 字号 — 用防抖滑块 */}
+                  <div className="h-px opacity-[0.06]" style={{ background: 'currentColor' }} />
+
+                  {/* ---- 字号 ---- */}
                   <div>
-                    <label className="text-xs font-bold uppercase tracking-wider opacity-50 mb-3 block">
-                      字号: {displaySettings.fontSize}px
-                    </label>
-                    <input
-                      type="range"
-                      min="12"
-                      max="28"
-                      value={displaySettings.fontSize}
-                      onChange={(e) => handleSliderChange('fontSize', parseInt(e.target.value))}
-                      className="w-full accent-primary"
-                    />
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.15em] opacity-35"
+                        style={{ fontFamily: 'Georgia, serif' }}>字号</span>
+                      <div className="flex items-baseline gap-1">
+                        <span
+                          className="text-lg font-bold opacity-60 tabular-nums"
+                          style={{
+                            fontFamily: 'Georgia, serif',
+                            fontSize: `${Math.min(22, Math.max(14, displaySettings.fontSize))}px`
+                          }}
+                        >Aa</span>
+                        <span className="text-[10px] opacity-30 tabular-nums ml-1">{displaySettings.fontSize}px</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] opacity-30" style={{ fontFamily: 'Georgia, serif', fontSize: '11px' }}>A</span>
+                      <input
+                        type="range" min="12" max="28"
+                        value={displaySettings.fontSize}
+                        onChange={(e) => handleSliderChange('fontSize', parseInt(e.target.value))}
+                        className="reader-slider flex-1"
+                      />
+                      <span className="text-sm opacity-30" style={{ fontFamily: 'Georgia, serif', fontSize: '18px' }}>A</span>
+                    </div>
                   </div>
 
-                  {/* 行高 — 用防抖滑块 */}
+                  {/* ---- 行高 ---- */}
                   <div>
-                    <label className="text-xs font-bold uppercase tracking-wider opacity-50 mb-3 block">
-                      行高: {displaySettings.lineHeight}
-                    </label>
-                    <input
-                      type="range"
-                      min="1.2"
-                      max="2.4"
-                      step="0.1"
-                      value={displaySettings.lineHeight}
-                      onChange={(e) => handleSliderChange('lineHeight', parseFloat(e.target.value))}
-                      className="w-full accent-primary"
-                    />
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.15em] opacity-35"
+                        style={{ fontFamily: 'Georgia, serif' }}>行距</span>
+                      <span className="text-[10px] opacity-30 tabular-nums">{displaySettings.lineHeight}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {/* 行距预览 */}
+                      <div className="flex flex-col gap-[2px] opacity-25">
+                        <div className="w-3 h-[2px] rounded-full bg-current" />
+                        <div className="w-3 h-[2px] rounded-full bg-current" />
+                        <div className="w-3 h-[2px] rounded-full bg-current" />
+                      </div>
+                      <input
+                        type="range" min="1.2" max="2.4" step="0.1"
+                        value={displaySettings.lineHeight}
+                        onChange={(e) => handleSliderChange('lineHeight', parseFloat(e.target.value))}
+                        className="reader-slider flex-1"
+                      />
+                      <div className="flex flex-col gap-[4px] opacity-25">
+                        <div className="w-3 h-[2px] rounded-full bg-current" />
+                        <div className="w-3 h-[2px] rounded-full bg-current" />
+                        <div className="w-3 h-[2px] rounded-full bg-current" />
+                      </div>
+                    </div>
                   </div>
 
-                  {/* 页面宽度 — 用防抖滑块（移动端隐藏，因为单页全宽） */}
+                  {/* ---- 页宽（桌面端） ---- */}
                   <div className="hidden sm:block">
-                    <label className="text-xs font-bold uppercase tracking-wider opacity-50 mb-3 block">
-                      页宽: {displaySettings.pageWidth}px
-                    </label>
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.15em] opacity-35"
+                        style={{ fontFamily: 'Georgia, serif' }}>页面宽度</span>
+                      <span className="text-[10px] opacity-30 tabular-nums">{displaySettings.pageWidth}px</span>
+                    </div>
                     <input
-                      type="range"
-                      min="500"
-                      max="1200"
-                      step="50"
+                      type="range" min="600" max="1200" step="50"
                       value={displaySettings.pageWidth}
                       onChange={(e) => handleSliderChange('pageWidth', parseInt(e.target.value))}
-                      className="w-full accent-primary"
+                      className="reader-slider w-full"
                     />
                   </div>
 
-                  {/* 字体 — 按钮类立即生效 */}
+                  <div className="h-px opacity-[0.06]" style={{ background: 'currentColor' }} />
+
+                  {/* ---- 字体 ---- */}
                   <div>
-                    <label className="text-xs font-bold uppercase tracking-wider opacity-50 mb-3 block">字体</label>
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.15em] opacity-35 mb-3"
+                      style={{ fontFamily: 'Georgia, serif' }}>字体</div>
                     <div className="grid grid-cols-2 gap-2">
                       {[
-                        { value: 'system', label: '系统默认' },
-                        { value: 'serif', label: '衬线体' },
-                        { value: 'sans-serif', label: '无衬线' },
-                        { value: 'mono', label: '等宽体' },
-                      ].map(({ value, label }) => (
+                        { value: 'system', label: '系统默认', font: '-apple-system, system-ui, sans-serif' },
+                        { value: 'serif', label: '衬线体', font: 'Georgia, "Times New Roman", serif' },
+                        { value: 'sans-serif', label: '无衬线', font: '-apple-system, "Segoe UI", sans-serif' },
+                        { value: 'mono', label: '等宽体', font: '"SF Mono", "Fira Code", monospace' },
+                      ].map(({ value, label, font }) => (
                         <button
                           key={value}
                           onClick={() => handleSettingsChange('fontFamily', value)}
-                          className={`py-2 px-3 rounded-lg text-xs font-medium border transition-all ${
+                          className={`py-2.5 px-3 rounded-xl text-xs transition-all ${
                             displaySettings.fontFamily === value
-                              ? 'border-primary bg-primary/10 text-primary'
-                              : 'border-black/10 hover:border-black/20'
+                              ? 'shadow-sm'
+                              : 'opacity-50 hover:opacity-70'
                           }`}
+                          style={{
+                            fontFamily: font,
+                            background: displaySettings.fontFamily === value
+                              ? (readerTheme === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)')
+                              : 'transparent',
+                            border: `1.5px solid ${
+                              displaySettings.fontFamily === value
+                                ? (readerTheme === 'dark' ? '#8a7050' : '#c49a6c')
+                                : (readerTheme === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)')
+                            }`,
+                          }}
                         >
                           {label}
                         </button>
@@ -637,24 +742,43 @@ export default function ReaderPage({ params }: ReaderPageProps) {
       {/* 底部进度条 — 浮动在阅读区域下方 */}
       <div
         onPointerDown={resetAutoHide}
-        className={`absolute bottom-0 left-0 right-0 z-20 px-4 py-2 border-t flex items-center gap-3 transition-all duration-300 ${
+        className={`absolute bottom-0 left-0 right-0 z-20 px-5 py-3 flex items-center gap-4 transition-all duration-300 backdrop-blur-xl ${
           showToolbar ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'
         } ${
-          readerTheme === 'dark' ? 'bg-[#222]/95 border-[#333] backdrop-blur-sm' :
-          readerTheme === 'sepia' ? 'bg-[#ede0c8]/95 border-[#d4c5a9] backdrop-blur-sm' :
-          'bg-gray-50/95 border-gray-200 backdrop-blur-sm'
+          readerTheme === 'dark'
+            ? 'bg-[#1e1a16]/75 border-t border-white/6'
+            : readerTheme === 'sepia'
+            ? 'bg-[#e8dcc4]/75 border-t border-[#c9b894]/25'
+            : 'bg-[#f5f0e8]/75 border-t border-[#d4c5ae]/20'
         }`}
+        style={{
+          boxShadow: readerTheme === 'dark'
+            ? '0 -1px 12px rgba(0,0,0,0.25)'
+            : '0 -1px 12px rgba(120,100,70,0.06)'
+        }}
         onClick={(e) => e.stopPropagation()}
       >
-        <ChevronLeft className="w-4 h-4 opacity-40" />
-        <div className="flex-1 h-1.5 bg-black/10 rounded-full overflow-hidden">
+        <div className="flex-1 h-[3px] rounded-full overflow-hidden"
+          style={{
+            background: readerTheme === 'dark'
+              ? 'rgba(255,255,255,0.08)'
+              : 'rgba(0,0,0,0.06)'
+          }}
+        >
           <div
-            className="h-full bg-primary rounded-full transition-all duration-500"
-            style={{ width: `${percentage}%` }}
+            className="h-full rounded-full transition-all duration-500"
+            style={{
+              width: `${percentage}%`,
+              background: readerTheme === 'dark'
+                ? 'linear-gradient(90deg, #8a7050, #b8956e)'
+                : 'linear-gradient(90deg, #c4996c, #d4aa7e)'
+            }}
           />
         </div>
-        <ChevronRight className="w-4 h-4 opacity-40" />
-        <span className="text-xs font-bold opacity-50 tabular-nums w-10 text-right">
+        <span
+          className="text-[11px] tabular-nums shrink-0 opacity-40"
+          style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontWeight: 500 }}
+        >
           {Math.round(percentage)}%
         </span>
       </div>

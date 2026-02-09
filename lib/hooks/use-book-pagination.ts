@@ -185,15 +185,39 @@ export function useBookPagination(
     }
   }, [chapters, styles, fontSize, lineHeight, fontFamilyCss, pageContentWidth, pageContentHeight]);
 
-  // 当内容或设置变化时重新分页（防抖 150ms，避免设置拖滑块时连续触发）
+  // 当内容或设置变化时重新分页
+  //
+  // 性能关键路径：
+  // 1. 设置变化 → 立即标记 isReady=false → UI 显示"排版中"遮罩
+  // 2. 150ms 防抖 → 避免滑块拖动时连续触发
+  // 3. requestAnimationFrame → 确保遮罩先绘制到屏幕，再执行阻塞式排版
+  //    （如果直接 paginate()，主线程被阻塞 100-500ms，遮罩根本没机会显示）
+  // 4. paginate() 完成 → isReady=true → 遮罩淡出，新排版淡入
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rafRef = useRef(0);
+  const hasInitialized = useRef(false);
+
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+
+    // 首次加载不显示遮罩；设置变化后立即标记为"重排中"
+    if (hasInitialized.current) {
+      // 同步 setState 是故意的：让消费者在 paginate() 阻塞主线程之前就能看到 isReady=false 并显示遮罩
+      setResult(prev => prev.isReady ? { ...prev, isReady: false } : prev); // eslint-disable-line
+    }
+
     debounceRef.current = setTimeout(() => {
-      paginate();
+      // 用 rAF 推迟 paginate()，让浏览器先把"排版中"遮罩画上去
+      rafRef.current = requestAnimationFrame(() => {
+        hasInitialized.current = true;
+        paginate();
+      });
     }, 150);
+
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, [paginate]);
 

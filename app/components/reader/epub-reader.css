@@ -21,96 +21,124 @@
   justify-content: center;
 }
 
-/* 书本主体阴影 */
+/* 书本主体阴影 — 多层阴影营造漂浮感和深度 */
 .book-shadow {
   position: absolute;
-  inset: -8px;
-  border-radius: 6px;
+  inset: -10px;
+  border-radius: 8px;
   pointer-events: none;
   box-shadow:
-    0 2px 8px rgba(0, 0, 0, 0.08),
-    0 8px 24px rgba(0, 0, 0, 0.12),
-    0 16px 48px rgba(0, 0, 0, 0.08),
-    0 0 0 1px rgba(0, 0, 0, 0.04);
+    0 1px 2px rgba(80, 60, 30, 0.04),
+    0 4px 8px rgba(80, 60, 30, 0.05),
+    0 8px 20px rgba(80, 60, 30, 0.06),
+    0 16px 40px rgba(80, 60, 30, 0.08),
+    0 28px 64px rgba(80, 60, 30, 0.06),
+    0 0 0 1px rgba(80, 60, 30, 0.04);
   z-index: 0;
 }
 
-/* 左侧页边堆叠效果 */
+/* 左侧页边堆叠效果 — 模拟翻过的书页 */
 .page-stack-left {
   position: absolute;
-  left: -3px;
-  top: 4px;
-  bottom: 4px;
-  width: 6px;
+  left: -4px;
+  top: 3px;
+  bottom: 3px;
+  width: 8px;
   pointer-events: none;
   z-index: 1;
   background: linear-gradient(
     to right,
-    rgba(0, 0, 0, 0.06),
-    rgba(0, 0, 0, 0.03) 30%,
-    rgba(0, 0, 0, 0.01) 60%,
+    rgba(80, 60, 30, 0.08),
+    rgba(80, 60, 30, 0.04) 25%,
+    rgba(80, 60, 30, 0.02) 50%,
     transparent
   );
-  border-radius: 2px 0 0 2px;
+  border-radius: 3px 0 0 3px;
+  border-left: 1px solid rgba(80, 60, 30, 0.06);
 }
 
-/* 右侧页边堆叠效果 */
+/* 右侧页边堆叠效果 — 模拟未翻的书页 */
 .page-stack-right {
   position: absolute;
-  right: -3px;
-  top: 4px;
-  bottom: 4px;
-  width: 6px;
+  right: -4px;
+  top: 3px;
+  bottom: 3px;
+  width: 8px;
   pointer-events: none;
   z-index: 1;
   background: linear-gradient(
     to left,
-    rgba(0, 0, 0, 0.06),
-    rgba(0, 0, 0, 0.03) 30%,
-    rgba(0, 0, 0, 0.01) 60%,
+    rgba(80, 60, 30, 0.08),
+    rgba(80, 60, 30, 0.04) 25%,
+    rgba(80, 60, 30, 0.02) 50%,
     transparent
   );
-  border-radius: 0 2px 2px 0;
+  border-radius: 0 3px 3px 0;
+  border-right: 1px solid rgba(80, 60, 30, 0.06);
 }
 
-/* 书脊阴影（两页中间的分界线） */
+/* 书脊阴影（两页中间的分界线）— 更立体的凹陷效果 */
 .book-spine {
   position: absolute;
   top: 0;
   bottom: 0;
   left: 50%;
-  width: 30px;
+  width: 40px;
   transform: translateX(-50%);
   pointer-events: none;
   z-index: 10;
   background: linear-gradient(
     to right,
     transparent 0%,
-    rgba(0, 0, 0, 0.03) 20%,
-    rgba(0, 0, 0, 0.08) 45%,
-    rgba(0, 0, 0, 0.12) 50%,
-    rgba(0, 0, 0, 0.08) 55%,
-    rgba(0, 0, 0, 0.03) 80%,
+    rgba(80, 60, 30, 0.02) 15%,
+    rgba(80, 60, 30, 0.05) 30%,
+    rgba(0, 0, 0, 0.10) 45%,
+    rgba(0, 0, 0, 0.14) 50%,
+    rgba(0, 0, 0, 0.10) 55%,
+    rgba(80, 60, 30, 0.05) 70%,
+    rgba(80, 60, 30, 0.02) 85%,
     transparent 100%
   );
 }
 
-/* 书脊高光（微妙的光泽效果） */
+/* 书脊高光（微妙的光泽效果）— 模拟纸页弯折反光 */
 .book-spine::after {
   content: '';
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 50%;
-  width: 1px;
-  background: rgba(255, 255, 255, 0.08);
+  left: calc(50% - 1px);
+  width: 2px;
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.06) 0%,
+    rgba(255, 255, 255, 0.10) 30%,
+    rgba(255, 255, 255, 0.08) 70%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
 }
 
 /* ---- react-pageflip 容器样式覆盖 ---- */
 
+/* 书本容器桌面端柔光效果 — 聚焦阅读 */
+@media (min-width: 768px) {
+  .book-container::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(
+      ellipse 60% 65% at 50% 48%,
+      rgba(255, 252, 245, 0.12) 0%,
+      transparent 100%
+    );
+    pointer-events: none;
+    z-index: 0;
+  }
+}
+
 /* 确保翻页组件圆角 */
 .book-flipbook {
-  border-radius: 3px;
+  border-radius: 4px;
   overflow: visible;
 }
 
@@ -122,9 +150,9 @@
  * CSS class 的属性不会被 style.cssText 覆盖（只要 inline 中没设同名属性）。
  */
 .book-page {
-  /* 纸张背景色 — 不能用 inline style，否则翻页时丢失导致透明 */
-  background-color: #f8f5f0;
-  color: #333;
+  /* 纸张背景色 — 暖白纸色，不能用 inline style，否则翻页时丢失导致透明 */
+  background-color: #faf7f2;
+  color: #2d2518;
   overflow: hidden;
   box-sizing: border-box;
 
@@ -136,13 +164,21 @@
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
 
-  /* 纸张纹理 */
+  /* 纸张纹理 — 模拟真实纸页的微妙明暗变化 */
   background-image:
     linear-gradient(
-      135deg,
-      rgba(0, 0, 0, 0.008) 0%,
-      rgba(0, 0, 0, 0.003) 50%,
-      rgba(0, 0, 0, 0.005) 100%
+      160deg,
+      rgba(255, 252, 245, 0.4) 0%,
+      transparent 30%,
+      transparent 70%,
+      rgba(0, 0, 0, 0.008) 100%
+    ),
+    linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.006) 0%,
+      transparent 8%,
+      transparent 92%,
+      rgba(0, 0, 0, 0.010) 100%
     );
 }
 
@@ -153,14 +189,37 @@
 
 /* 深色主题页面 */
 .book-theme-dark .book-page {
-  background-color: #2a2520;
+  background-color: #282420;
   color: #c8c0b8;
+  background-image:
+    linear-gradient(
+      160deg,
+      rgba(255, 255, 255, 0.01) 0%,
+      transparent 30%,
+      transparent 70%,
+      rgba(0, 0, 0, 0.02) 100%
+    );
 }
 
 /* 羊皮纸主题页面 */
 .book-theme-sepia .book-page {
   background-color: #f4ecd8;
-  color: #5b4636;
+  color: #4a3828;
+  background-image:
+    linear-gradient(
+      160deg,
+      rgba(255, 248, 230, 0.3) 0%,
+      transparent 30%,
+      transparent 70%,
+      rgba(90, 70, 40, 0.015) 100%
+    ),
+    linear-gradient(
+      to bottom,
+      rgba(90, 70, 40, 0.01) 0%,
+      transparent 8%,
+      transparent 92%,
+      rgba(90, 70, 40, 0.015) 100%
+    );
 }
 
 /* ---- 主题变体 ---- */
@@ -168,64 +227,78 @@
 /* 深色主题 */
 .book-theme-dark .book-shadow {
   box-shadow:
-    0 2px 8px rgba(0, 0, 0, 0.3),
-    0 8px 24px rgba(0, 0, 0, 0.4),
-    0 16px 48px rgba(0, 0, 0, 0.3),
-    0 0 0 1px rgba(255, 255, 255, 0.05);
+    0 2px 6px rgba(0, 0, 0, 0.3),
+    0 8px 20px rgba(0, 0, 0, 0.35),
+    0 16px 40px rgba(0, 0, 0, 0.3),
+    0 28px 64px rgba(0, 0, 0, 0.2),
+    0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
 .book-theme-dark .book-spine {
   background: linear-gradient(
     to right,
     transparent 0%,
-    rgba(0, 0, 0, 0.06) 20%,
-    rgba(0, 0, 0, 0.18) 45%,
+    rgba(0, 0, 0, 0.05) 15%,
+    rgba(0, 0, 0, 0.15) 35%,
+    rgba(0, 0, 0, 0.22) 48%,
     rgba(0, 0, 0, 0.25) 50%,
-    rgba(0, 0, 0, 0.18) 55%,
-    rgba(0, 0, 0, 0.06) 80%,
+    rgba(0, 0, 0, 0.22) 52%,
+    rgba(0, 0, 0, 0.15) 65%,
+    rgba(0, 0, 0, 0.05) 85%,
     transparent 100%
   );
 }
 
-.book-theme-dark .page-stack-left,
-.book-theme-dark .page-stack-right {
+.book-theme-dark .page-stack-left {
   background: linear-gradient(
     to right,
     rgba(0, 0, 0, 0.15),
-    rgba(0, 0, 0, 0.05) 60%,
+    rgba(0, 0, 0, 0.06) 40%,
     transparent
   );
+  border-left-color: rgba(0, 0, 0, 0.12);
 }
 
 .book-theme-dark .page-stack-right {
   background: linear-gradient(
     to left,
     rgba(0, 0, 0, 0.15),
-    rgba(0, 0, 0, 0.05) 60%,
+    rgba(0, 0, 0, 0.06) 40%,
     transparent
   );
+  border-right-color: rgba(0, 0, 0, 0.12);
 }
 
 /* 羊皮纸主题 */
 .book-theme-sepia .book-shadow {
   box-shadow:
-    0 2px 8px rgba(90, 70, 50, 0.1),
-    0 8px 24px rgba(90, 70, 50, 0.15),
-    0 16px 48px rgba(90, 70, 50, 0.1),
-    0 0 0 1px rgba(90, 70, 50, 0.08);
+    0 1px 3px rgba(90, 70, 40, 0.06),
+    0 4px 10px rgba(90, 70, 40, 0.08),
+    0 10px 24px rgba(90, 70, 40, 0.10),
+    0 20px 48px rgba(90, 70, 40, 0.08),
+    0 0 0 1px rgba(90, 70, 40, 0.06);
 }
 
 .book-theme-sepia .book-spine {
   background: linear-gradient(
     to right,
     transparent 0%,
-    rgba(90, 70, 50, 0.04) 20%,
-    rgba(90, 70, 50, 0.1) 45%,
-    rgba(90, 70, 50, 0.14) 50%,
-    rgba(90, 70, 50, 0.1) 55%,
-    rgba(90, 70, 50, 0.04) 80%,
+    rgba(90, 70, 40, 0.03) 15%,
+    rgba(90, 70, 40, 0.08) 35%,
+    rgba(90, 70, 40, 0.13) 48%,
+    rgba(90, 70, 40, 0.15) 50%,
+    rgba(90, 70, 40, 0.13) 52%,
+    rgba(90, 70, 40, 0.08) 65%,
+    rgba(90, 70, 40, 0.03) 85%,
     transparent 100%
   );
+}
+
+.book-theme-sepia .page-stack-left {
+  border-left-color: rgba(90, 70, 40, 0.08);
+}
+.book-theme-sepia .page-stack-right {
+  border-right-color: rgba(90, 70, 40, 0.08);
 }
 
 /* ---- 加载状态 ---- */
@@ -286,6 +359,68 @@
 
 .book-spine-hidden {
   display: none;
+}
+
+/* ---- 自定义阅读设置滑块 ---- */
+.reader-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 3px;
+  background: rgba(128, 100, 60, 0.12);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.reader-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #c49a6c, #b8886a);
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(120, 80, 40, 0.25), 0 0 0 2px rgba(255, 255, 255, 0.8);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.reader-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  box-shadow: 0 2px 6px rgba(120, 80, 40, 0.3), 0 0 0 2px rgba(255, 255, 255, 0.9);
+}
+
+.reader-slider::-webkit-slider-thumb:active {
+  transform: scale(1.05);
+}
+
+.reader-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #c49a6c, #b8886a);
+  cursor: pointer;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 1px 4px rgba(120, 80, 40, 0.25);
+}
+
+.reader-slider::-moz-range-track {
+  height: 3px;
+  background: rgba(128, 100, 60, 0.12);
+  border-radius: 2px;
+}
+
+/* 深色主题滑块 */
+.book-theme-dark .reader-slider {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.book-theme-dark .reader-slider::-webkit-slider-thumb {
+  background: linear-gradient(135deg, #a0845e, #8a7050);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4), 0 0 0 2px rgba(255, 255, 255, 0.1);
+}
+
+.book-theme-dark .reader-slider::-moz-range-track {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 /* ---- 翻页时的附加视觉效果 ---- */
