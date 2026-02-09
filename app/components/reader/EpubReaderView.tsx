@@ -58,6 +58,9 @@ export interface PageStoreType {
   subscribe: (cb: () => void) => () => void;
   getPage: () => number;
   setPage: (page: number) => void;
+  /** 初始目标页：翻页前的安全网，确保 startPage 附近的页面始终渲染 */
+  getInitialPage: () => number;
+  setInitialPage: (page: number) => void;
   getLazyWindow: () => number;
   setLazyWindow: (w: number) => void;
 }
@@ -66,8 +69,11 @@ export const PageStoreContext = createContext<PageStoreType | null>(null);
 
 function createPageStore(): PageStoreType {
   let currentPage = 0;
+  let initialPage = 0;
   let lazyWindow = LAZY_WINDOW_DESKTOP;
   const listeners = new Set<() => void>();
+
+  const notify = () => listeners.forEach(l => l());
 
   return {
     subscribe: (cb: () => void) => {
@@ -78,15 +84,22 @@ function createPageStore(): PageStoreType {
     setPage: (page: number) => {
       if (currentPage !== page) {
         currentPage = page;
-        listeners.forEach(l => l());
+        notify();
+      }
+    },
+    getInitialPage: () => initialPage,
+    setInitialPage: (page: number) => {
+      if (initialPage !== page) {
+        initialPage = page;
+        // 初始页变化也通知订阅者，确保 BookPage 重新计算 isNear
+        notify();
       }
     },
     getLazyWindow: () => lazyWindow,
     setLazyWindow: (w: number) => {
       if (lazyWindow !== w) {
         lazyWindow = w;
-        // 窗口大小变化也通知订阅者重新计算 isNear
-        listeners.forEach(l => l());
+        notify();
       }
     },
   };
@@ -110,6 +123,9 @@ export default function EpubReaderView({
   onProgressUpdate,
 }: EpubReaderViewProps) {
   // ---- 容器尺寸 ----
+  // 移动端浏览器地址栏随滑动收缩/展开会导致视口高度频繁变化（±50~80px）。
+  // 如果每次都触发重排版，用户一滑动就闪烁。
+  // 策略：宽度变化始终响应（设备旋转等），高度变化需超过阈值才响应。
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
 
@@ -117,9 +133,29 @@ export default function EpubReaderView({
     const el = containerRef.current;
     if (!el) return;
 
+    // 高度变化阈值：移动端地址栏变化通常在 50-80px，设 100px 过滤掉
+    const HEIGHT_THRESHOLD = 100;
+
     const measure = () => {
       const rect = el.getBoundingClientRect();
-      setContainerSize({ w: rect.width, h: rect.height });
+      const newW = rect.width;
+      const newH = rect.height;
+
+      setContainerSize(prev => {
+        // 首次测量：直接设置
+        if (prev.w === 0 && prev.h === 0) {
+          return { w: newW, h: newH };
+        }
+        // 宽度变化：始终更新（设备旋转、窗口缩放）
+        const widthChanged = Math.abs(newW - prev.w) > 1;
+        // 高度变化：仅当超过阈值时更新（过滤地址栏抖动）
+        const heightChanged = Math.abs(newH - prev.h) > HEIGHT_THRESHOLD;
+
+        if (widthChanged || heightChanged) {
+          return { w: newW, h: heightChanged ? newH : prev.h };
+        }
+        return prev; // 无显著变化，不更新
+      });
     };
 
     measure();
@@ -274,8 +310,9 @@ export default function EpubReaderView({
     }
 
     // 同步 store：确保 BookPage 首次渲染时 isNear 基于正确的页码计算。
-    // 必须在 setFlipBookKey 之前调用，否则 BookPages 会以 pageStore=0 渲染，
-    // 当 startPage > LAZY_WINDOW 时，目标页的 isNear=false → 内容为空白。
+    // 设置两个中心点：currentPage（翻页更新）+ initialPage（安全网）
+    // BookPage 的 isNear 会检查两者，避免因 effect 时序导致空白。
+    pageStore.setInitialPage(currentPageRef.current);
     pageStore.setPage(currentPageRef.current);
 
     // 递增计数器，确保即使排版结果完全相同（如设置 A→B→A），key 也会变化触发 remount

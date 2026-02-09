@@ -172,25 +172,39 @@ export default function ReaderPage({ params }: ReaderPageProps) {
     return () => clearInterval(interval);
   }, [book, id, percentage, currentLocation, saveProgress]);
 
-  // 页面关闭前保存
+  // 页面关闭/隐藏时保存
+  // - beforeunload: 桌面端关闭标签页/窗口
+  // - visibilitychange: 移动端切换 App / 切换标签页（移动端 beforeunload 不可靠）
+  // - pagehide: 部分浏览器的兜底
   useEffect(() => {
-    const handleBeforeUnload = () => {
-      if (book && percentage > 0) {
-        const delta = Math.floor((Date.now() - lastSaveRef.current) / 1000);
-        navigator.sendBeacon(
-          '/api/library/progress',
-          new Blob([JSON.stringify({
-            bookId: id,
-            currentLocation,
-            percentage,
-            readTimeDelta: delta,
-          })], { type: 'application/json' })
-        );
-      }
+    const doSave = () => {
+      if (!book || (!currentLocation && percentage <= 0)) return;
+      const delta = Math.floor((Date.now() - lastSaveRef.current) / 1000);
+      navigator.sendBeacon(
+        '/api/library/progress',
+        new Blob([JSON.stringify({
+          bookId: id,
+          currentLocation,
+          percentage,
+          readTimeDelta: delta,
+        })], { type: 'application/json' })
+      );
     };
 
+    const handleBeforeUnload = () => doSave();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') doSave();
+    };
+    const handlePageHide = () => doSave();
+
     window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
+    };
   }, [book, id, percentage, currentLocation]);
 
   // 恢复进度

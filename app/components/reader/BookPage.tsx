@@ -78,9 +78,13 @@ const BookPage = React.forwardRef<HTMLDivElement, BookPageProps>(
     const pageStore = useContext(PageStoreContext);
 
     // 创建稳定的 getSnapshot 函数（只依赖 pageIndex，不会变）
+    // 双中心检测：检查 currentPage 和 initialPage，任一命中即渲染内容。
+    // initialPage 是安全网：无论 effect 时序如何，startPage 附近的页面始终渲染。
     const getIsNear = useCallback(() => {
       if (!pageStore) return true; // 无 store 时默认显示
-      return Math.abs(pageIndex - pageStore.getPage()) <= pageStore.getLazyWindow();
+      const w = pageStore.getLazyWindow();
+      return Math.abs(pageIndex - pageStore.getPage()) <= w
+          || Math.abs(pageIndex - pageStore.getInitialPage()) <= w;
     }, [pageStore, pageIndex]);
 
     // 订阅 pageStore，仅在 isNear 变化时触发 re-render
