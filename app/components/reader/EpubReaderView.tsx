@@ -276,10 +276,8 @@ export default function EpubReaderView({
   const startPage = useMemo(() => {
     if (!pagination.isReady || pagination.totalPages === 0) return 0;
     if (savedCharOffset <= 0) return 0;
-    const page = charOffsetToPage(savedCharOffset);
-    console.log('[EpubReader] 恢复进度', { initialLocation, savedCharOffset, startPage: page, totalPages: pagination.totalPages, totalTextLength, chapterPageRangesLen: pagination.chapterPageRanges.length });
-    return page;
-  }, [pagination.isReady, pagination.totalPages, savedCharOffset, charOffsetToPage, initialLocation, totalTextLength, pagination.chapterPageRanges.length]);
+    return charOffsetToPage(savedCharOffset);
+  }, [pagination.isReady, pagination.totalPages, savedCharOffset, charOffsetToPage]);
 
   // ---- 主题 & 排版设置 ----
   const theme = settings?.theme || 'light';
@@ -330,6 +328,8 @@ export default function EpubReaderView({
   useEffect(() => {
     if (!pagination.isReady) return;
     if (!initializedRef.current && isLoading) return;
+    // 有进度时必须等 chapterPageRanges 就绪再初始化，否则 charOffsetToPage 用比例兜底会定位不准
+    if (!initializedRef.current && savedCharOffset > 0 && pagination.chapterPageRanges.length === 0) return;
 
     const isSettingsChange = prevSettingsFpRef.current !== '' && prevSettingsFpRef.current !== settingsFingerprint;
     const isProgressRestore = initializedRef.current &&
@@ -402,7 +402,7 @@ export default function EpubReaderView({
       // ---- 新章节加载导致页数微调 → 静默更新 ----
       prevTotalRef.current = pagination.totalPages;
     }
-  }, [pagination.isReady, isLoading, pagination.totalPages, startPage, savedCharOffset, initialLocation, pageDimensions.pageW, pageDimensions.pageH, fontSize, lineHeightVal, fontFamily, pageStore, settingsFingerprint, pageToCharOffset, pageWindowSize]);
+  }, [pagination.isReady, isLoading, pagination.totalPages, pagination.chapterPageRanges.length, startPage, savedCharOffset, initialLocation, pageDimensions.pageW, pageDimensions.pageH, fontSize, lineHeightVal, fontFamily, pageStore, settingsFingerprint, pageToCharOffset, pageWindowSize]);
 
   // ---- FlipBook 挂载后淡入 ----
   useEffect(() => {
@@ -438,7 +438,6 @@ export default function EpubReaderView({
           const gp = currentPageRef.current;
           const pct = Math.round((gp / Math.max(1, pagination.totalPages - 1)) * 100);
           const charOffset = pageToCharOffset(gp);
-          console.log('[EpubReader] 保存进度', { globalPage: gp, charOffset, pct, totalPages: pagination.totalPages, chapterPageRangesLen: pagination.chapterPageRanges.length });
           onProgressUpdateRef.current?.(pct, `char:${charOffset}`, { pageNumber: gp, settingsFingerprint });
         }
       }, 800);
@@ -476,12 +475,11 @@ export default function EpubReaderView({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (e: any) => {
       if (e.data === 'read') {
-        // ---- 执行待定的窗口滑动 ----
-        // 翻页动画结束，书页静止，是最佳移窗时机
+        // ---- 执行待定的窗口滑动（下一帧执行，避免与翻页动画结束同帧 setState 造成卡顿） ----
         if (pendingWindowShift.current) {
           const shift = pendingWindowShift.current;
           pendingWindowShift.current = null;
-          shift();
+          requestAnimationFrame(() => shift());
         }
       }
     },
