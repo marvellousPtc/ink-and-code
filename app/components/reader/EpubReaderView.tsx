@@ -293,7 +293,11 @@ export default function EpubReaderView({
   }, [pagination.totalPages, pageWindowSize, pageDimensions.pageW, pageDimensions.pageH, settingsFingerprint, pageStore]);
 
   useEffect(() => {
+    // 等待分页就绪；首次初始化还需等待章节加载完成，
+    // 避免在仅有估算分页时 doRemount 导致页码闪烁。
+    // 设置变更（isSettingsChange）不受 isLoading 阻塞，因为它不影响 startPage 准确性。
     if (!pagination.isReady) return;
+    if (!initializedRef.current && isLoading) return;
 
     const isSettingsChange = prevSettingsFpRef.current !== '' && prevSettingsFpRef.current !== settingsFingerprint;
     const isProgressRestore = prevStartPageRef.current >= 0 && startPage !== prevStartPageRef.current && startPage > 0;
@@ -333,7 +337,7 @@ export default function EpubReaderView({
       // ---- 新章节加载导致页数微调 → 静默更新 ----
       prevTotalRef.current = pagination.totalPages;
     }
-  }, [pagination.isReady, pagination.totalPages, startPage, pageDimensions.pageW, pageDimensions.pageH, fontSize, lineHeightVal, fontFamily, pageStore, settingsFingerprint, pageToCharOffset, doRemount]);
+  }, [pagination.isReady, isLoading, pagination.totalPages, startPage, pageDimensions.pageW, pageDimensions.pageH, fontSize, lineHeightVal, fontFamily, pageStore, settingsFingerprint, pageToCharOffset, doRemount]);
 
   // FlipBook remount 后 → 跳转到正确页码 → 淡入
   const windowStartForEffect = windowStart;

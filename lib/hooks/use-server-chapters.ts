@@ -248,11 +248,17 @@ export function useServerChapters(
 
         const meta: ChapterMeta[] = metaData.chapters ?? [];
         chaptersMetaRef.current = meta;
-        setChaptersMeta(meta);
-        setStyles(metaData.styles ?? '');
-        setTotalCharacters(metaData.totalCharacters ?? 0);
+
+        // 保存元数据值，延迟到和章节内容一起批量设置 state，
+        // 避免中间渲染导致 chaptersForPagination 全部为空 html → 估算分页 → 页码闪烁。
+        const metaStyles = metaData.styles ?? '';
+        const metaTotalChars = metaData.totalCharacters ?? 0;
 
         if (meta.length === 0) {
+          // 无章节时直接一次性设置所有 state
+          setChaptersMeta(meta);
+          setStyles(metaStyles);
+          setTotalCharacters(metaTotalChars);
           setIsLoading(false);
           return;
         }
@@ -277,6 +283,13 @@ export function useServerChapters(
           map.set(ch.chapterIndex, ch);
         }
         loadedChaptersRef.current = map;
+
+        // 一次性批量设置所有 state（React 18 自动批处理），
+        // 确保 chaptersForPagination 在首次渲染时就包含已加载章节的 html，
+        // 避免先估算分页再精确分页导致的页码闪烁。
+        setChaptersMeta(meta);
+        setStyles(metaStyles);
+        setTotalCharacters(metaTotalChars);
         setLoadedChapters(map);
         setIsLoading(false);
       } catch (err) {
