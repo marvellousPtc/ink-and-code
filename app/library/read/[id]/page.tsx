@@ -251,7 +251,7 @@ export default function ReaderPage({ params }: ReaderPageProps) {
     if (loc) setCurrentLocation(loc);
     if (extra) progressExtraRef.current = extra;
 
-    // 防抖保存到后端：每次调用重置计时器，1 秒后执行
+    // 防抖保存到后端：每次调用重置计时器，1.5 秒后执行（避免频繁保存影响翻页性能）
     // 通过 ref 读取最新值，避免依赖 state 导致回调频繁重建
     if (debounceSaveRef.current) clearTimeout(debounceSaveRef.current);
     debounceSaveRef.current = setTimeout(() => {
@@ -266,7 +266,7 @@ export default function ReaderPage({ params }: ReaderPageProps) {
         readTimeDelta: delta,
         ...progressExtraRef.current,
       }).catch(console.error);
-    }, 1000);
+    }, 1500);
   }, [saveProgress]);
 
   const handleToggleToolbar = useCallback(() => {

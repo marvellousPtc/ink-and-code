@@ -31,10 +31,10 @@ import './epub-reader.css';
 // ---- 页面级滑动窗口配置 ----
 // 只给 HTMLFlipBook 传 windowSize 个页面，而非全部。
 // 库的 updateFromHtml 支持原地替换，窗口滑动零闪烁，因此窗口无需过大。
-// 60 页 ≈ 用户翻 30 次才可能触发一次窗口滑动，体验足够流畅。
-const PAGE_WINDOW_SIZE_DESKTOP = 60;
-const PAGE_WINDOW_SIZE_MOBILE = 40;
-const SHIFT_THRESHOLD = 10;
+// 缩小窗口降低翻页时的 DOM 与 diff 成本（大页数场景更流畅）。
+const PAGE_WINDOW_SIZE_DESKTOP = 24;
+const PAGE_WINDOW_SIZE_MOBILE = 16;
+const SHIFT_THRESHOLD = 4;
 
 // ---- 页面状态外部存储 ----
 export interface PageStoreType {
@@ -293,7 +293,7 @@ export default function EpubReaderView({
   // lazyWindow 决定距当前页多远的页面渲染真实 HTML。
   // 过大（如 pageWindowSize/2=30）会导致窗口内全部 60 页都做 CSS 列布局，DOM 爆炸。
   // 设为 5：只有当前页 ±5（共 ~11 页）渲染内容，其余显示轻量占位符。
-  const LAZY_WINDOW = isMobile ? 3 : 5;
+  const LAZY_WINDOW = isMobile ? 1 : 2;
   useEffect(() => {
     pageStore.setLazyWindow(LAZY_WINDOW);
   }, [LAZY_WINDOW, pageStore]);
@@ -319,7 +319,6 @@ export default function EpubReaderView({
   const currentPageRef = useRef(0);
   const currentLocalPageRef = useRef(0); // 翻页时同步更新（不触发重渲染），供 useLayoutEffect 同步到 state
   const windowStartRef = useRef(0); // 避免 handleFlip 的 useCallback 依赖 windowStart state
-  const lazyUpdateTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   // 待执行的窗口滑动（等翻页动画结束后再执行，避免打断动画造成卡顿）
   const pendingWindowShift = useRef<(() => void) | null>(null);
 
@@ -386,6 +385,7 @@ export default function EpubReaderView({
       setCurrentLocalPage(globalPage - win.start);
       pageStore.setInitialPage(globalPage);
       pageStore.setPage(globalPage);
+      pageStore.setInitialPage(globalPage);
       setSettingsKey(`settings_${settingsFingerprint}`);
       setShowBook(false);
 
@@ -450,22 +450,21 @@ export default function EpubReaderView({
 
       // 只更新 pageStore（通知 BookPage 子组件 isNear 变化），不 setState 父组件
       pageStore.setPage(globalPage);
+      pageStore.setInitialPage(globalPage);
 
-      // ---- 防抖保存阅读进度 ----
-      if (lazyUpdateTimer.current) clearTimeout(lazyUpdateTimer.current);
-      lazyUpdateTimer.current = setTimeout(() => {
+      // ---- 保存进度 + 章节预取 + 窗口滑动（放到 microtask，不阻塞翻页动画帧） ----
+      queueMicrotask(() => {
         const pg = paginationRef.current;
-        if (pg.totalPages > 0) {
+
+        // 通知上层更新进度（上层自行防抖，这里不做 timer 操作以减少翻页开销）
+        if (pg.totalPages > 0 && onProgressUpdateRef.current) {
           const gp = currentPageRef.current;
           const pct = Math.round((gp / Math.max(1, pg.totalPages - 1)) * 100);
           const charOffset = pageToCharOffsetRef.current(gp);
-          onProgressUpdateRef.current?.(pct, `char:${charOffset}`, { pageNumber: gp, settingsFingerprint: settingsFpRef.current });
+          onProgressUpdateRef.current(pct, `char:${charOffset}`, { pageNumber: gp, settingsFingerprint: settingsFpRef.current });
         }
-      }, 800);
 
-      // 章节预取 + 窗口滑动检测（放到 microtask，不阻塞翻页动画帧）
-      queueMicrotask(() => {
-        const pg = paginationRef.current;
+        // 章节预取
         const info = getChapterForPage(globalPage, pg.chapterPageRanges);
         if (info) {
           updateCurrentChapter(info.chapterIndex);
@@ -514,13 +513,6 @@ export default function EpubReaderView({
     },
     [],
   );
-
-  // ---- 清理 ----
-  useEffect(() => {
-    return () => {
-      if (lazyUpdateTimer.current) clearTimeout(lazyUpdateTimer.current);
-    };
-  }, []);
 
   // ---- 键盘翻页 ----
   useEffect(() => {
@@ -654,7 +646,7 @@ export default function EpubReaderView({
               useMouseEvents={true}
               usePortrait={isMobile}
               singlePage={isMobile}
-              flippingTime={isMobile ? 300 : 600}
+              flippingTime={isMobile ? 240 : 450}
               drawShadow={!isMobile}
               maxShadowOpacity={isMobile ? 0.15 : 0.25}
               showPageCorners={!isMobile}
