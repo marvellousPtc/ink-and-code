@@ -206,7 +206,10 @@ export default function EpubReaderView({
   const [showBook, setShowBook] = useState(false);
   const [settingsKey, setSettingsKey] = useState('');
   const [windowStart, setWindowStart] = useState(0);
+  // currentLocalPage 状态仅在 需要库导航 时更新（init / 设置变更 / 进度恢复 / 窗口滑动）。
+  // 普通翻页只更新 ref，不触发 React 重渲染，避免库冗余 turnToPage。
   const [currentLocalPage, setCurrentLocalPage] = useState(0);
+  const currentLocalPageRef = useRef(0);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const flipBookRef = useRef<any>(null);
@@ -244,6 +247,7 @@ export default function EpubReaderView({
       const win = calcPageWindow(startPage, pagination.totalPages, pageWindowSize);
       /* eslint-disable-next-line react-hooks/set-state-in-effect */
       setWindowStart(win.start);
+      currentLocalPageRef.current = startPage - win.start;
       setCurrentLocalPage(startPage - win.start);
       pageStore.setInitialPage(startPage);
       pageStore.setPage(startPage);
@@ -257,6 +261,7 @@ export default function EpubReaderView({
       const gp = currentPageRef.current;
       const win = calcPageWindow(gp, pagination.totalPages, pageWindowSize);
       setWindowStart(win.start);
+      currentLocalPageRef.current = gp - win.start;
       setCurrentLocalPage(gp - win.start);
       pageStore.setInitialPage(gp);
       pageStore.setPage(gp);
@@ -272,6 +277,7 @@ export default function EpubReaderView({
       currentPageRef.current = startPage;
       const win = calcPageWindow(startPage, pagination.totalPages, pageWindowSize);
       setWindowStart(win.start);
+      currentLocalPageRef.current = startPage - win.start;
       setCurrentLocalPage(startPage - win.start);
       pageStore.setInitialPage(startPage);
       pageStore.setPage(startPage);
@@ -294,12 +300,13 @@ export default function EpubReaderView({
       const localPage = e.data as number;
       const globalPage = localPage + windowStart;
       currentPageRef.current = globalPage;
+      // 仅更新 ref，不触发 React 重渲染。
+      // 库内部已经在正确页面，不需要 state → startPage → turnToPage 链。
+      currentLocalPageRef.current = localPage;
 
       // 通知 BookPage 子组件更新 isNear
       pageStore.setPage(globalPage);
       pageStore.setInitialPage(globalPage);
-      // 同步 state 保证 FlipBook 的 startPage 始终正确
-      setCurrentLocalPage(localPage);
 
       // 通知上层（上层自行防抖，不阻塞）
       if (pagination.totalPages > 0 && onProgressUpdateRef.current) {
@@ -325,6 +332,7 @@ export default function EpubReaderView({
           const gp = currentPageRef.current;
           const newWin = calcPageWindow(gp, pagination.totalPages, pageWindowSize);
           setWindowStart(newWin.start);
+          currentLocalPageRef.current = gp - newWin.start;
           setCurrentLocalPage(gp - newWin.start);
           pageStore.setInitialPage(gp);
         };
@@ -436,9 +444,9 @@ export default function EpubReaderView({
               minWidth={200} maxWidth={600} minHeight={300} maxHeight={900}
               showCover={false} mobileScrollSupport={true} useMouseEvents={true}
               usePortrait={isMobile} singlePage={isMobile}
-              flippingTime={isMobile ? 300 : 500}
-              drawShadow={!isMobile} maxShadowOpacity={isMobile ? 0.15 : 0.25}
-              showPageCorners={!isMobile} disableFlipByClick={isMobile} clickEventForward={!isMobile}
+              flippingTime={isMobile ? 300 : 400}
+              drawShadow={false} maxShadowOpacity={0}
+              showPageCorners={false} disableFlipByClick={isMobile} clickEventForward={!isMobile}
               swipeDistance={15} startPage={currentLocalPage} startZIndex={2} autoSize={false}
               onFlip={handleFlip} onChangeState={handleChangeState} style={{}}>
               {stableChildren}
