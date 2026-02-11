@@ -31,12 +31,14 @@ interface ReaderPageProps {
 export default function ReaderPage({ params }: ReaderPageProps) {
   const { id } = use(params);
   const router = useRouter();
-  const { book, isLoading, isValidating, mutate: mutateBook } = useBookDetail(id);
+  const { book, isLoading, mutate: mutateBook } = useBookDetail(id);
 
-  // 进入阅读页时强制拉取最新进度，避免用 SWR 缓存（可能是上次的 progress.currentLocation = null）
+  // 进入阅读页时后台 revalidate 最新进度，但**不阻塞渲染**。
+  // 阅读器先用缓存数据立即显示，进度通过 initialLocation 的后续变化自动恢复。
   useEffect(() => {
     if (id) mutateBook();
   }, [id, mutateBook]);
+
   const { settings, mutate: mutateSettings } = useReadingSettings();
   const { saveSettings } = useSaveReadingSettings();
   const { saveProgress } = useSaveProgress();
@@ -44,10 +46,9 @@ export default function ReaderPage({ params }: ReaderPageProps) {
   const { highlights, addHighlight, deleteHighlight, mutate: mutateHighlights } = useHighlights(id);
 
   // ---- 首次加载保护 ----
-  // 进入阅读页时已用 useEffect 触发 mutateBook()，这里必须等验证完成再渲染阅读器，
-  // 否则会用到 SWR 缓存的旧 progress（currentLocation = null），恢复成第一页。
-  // 同时保持全屏遮罩直到 EpubReaderView 发出 onReady（readerReady），避免闪烁。
-  const dataReady = !!book && !isValidating;
+  // 有缓存时立即渲染阅读器（不等 revalidation）。
+  // 后台 revalidation 拿到最新 progress 后，initialLocation 变化 → EpubReaderView 自动跳页。
+  const dataReady = !!book;
   const [readerReady, setReaderReady] = useState(false);
   const handleReaderReady = useCallback(() => setReaderReady(true), []);
 
