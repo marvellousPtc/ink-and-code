@@ -5,7 +5,7 @@
  * :copyright: (c) 2026, Tungee
  * :date created: 2026-02-07 11:33:11
  * :last editor: PTC
- * :date last edited: 2026-02-12 17:08:12
+ * :date last edited: 2026-02-12 17:46:09
  */
 'use client';
 
@@ -26,11 +26,6 @@ import {
 import type { ReadingSettingsData } from '@/lib/hooks/use-library';
 import BookPage from './BookPage';
 import './epub-reader.css';
-
-// ---- 页面级滑动窗口 ----
-const PAGE_WINDOW_DESKTOP = 60;
-const PAGE_WINDOW_MOBILE = 30;
-const SHIFT_THRESHOLD = 12;
 
 // ---- 页面状态外部存储（BookPage 子组件订阅，避免父组件重渲染） ----
 export interface PageStoreType {
@@ -68,14 +63,6 @@ function createPageStore(): PageStoreType {
     getLazyWindow: () => lazyWindow,
     setLazyWindow: (w: number) => { if (lazyWindow !== w) { lazyWindow = w; notify(); } },
   };
-}
-
-function calcPageWindow(center: number, totalPages: number, windowSize: number) {
-  if (totalPages <= windowSize) return { start: 0, end: totalPages };
-  let start = Math.max(0, center - Math.floor(windowSize / 2));
-  let end = start + windowSize;
-  if (end > totalPages) { end = totalPages; start = end - windowSize; }
-  return { start, end };
 }
 
 interface EpubReaderViewProps {
@@ -158,11 +145,6 @@ export default function EpubReaderView({
 
   const pagination = useBookPagination(chapters, chaptersMeta, epubStyles, settings, contentWidth, contentHeight);
 
-  const pageWindowSize = useMemo(() => {
-    const ws = isMobile ? PAGE_WINDOW_MOBILE : PAGE_WINDOW_DESKTOP;
-    return (pagination.totalPages > 0 && pagination.totalPages <= ws) ? pagination.totalPages : ws;
-  }, [isMobile, pagination.totalPages]);
-
   // ---- 章节字符偏移表 ----
   const { chapterTextLengths, chapterCumOffsets, totalTextLength } = useMemo(() => {
     if (chaptersMeta.length === 0) return { chapterTextLengths: [] as number[], chapterCumOffsets: [0], totalTextLength: totalCharacters };
@@ -232,20 +214,15 @@ export default function EpubReaderView({
   // ---- 核心状态 ----
   const [showBook, setShowBook] = useState(false);
   const [settingsKey, setSettingsKey] = useState('');
-  const [windowStart, setWindowStart] = useState(0);
-  const windowStartRef = useRef(0);
-  // currentLocalPage 状态仅在 需要库导航 时更新（init / 设置变更 / 进度恢复 / 窗口滑动）。
+  // currentPage 状态仅在 需要库导航 时更新（init / 设置变更 / 进度恢复）。
   // 普通翻页只更新 ref，不触发 React 重渲染，避免库冗余 turnToPage。
-  const [currentLocalPage, setCurrentLocalPage] = useState(0);
-  const currentLocalPageRef = useRef(0);
+  const [currentPage, setCurrentPage] = useState(0);
+  const currentPageRef = useRef(0);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const flipBookRef = useRef<any>(null);
   const initializedRef = useRef(false);
   const prevTotalRef = useRef(0);
-  const currentPageRef = useRef(0);
-  // 待执行的窗口滑动（动画结束后执行）
-  const pendingWindowShift = useRef<(() => void) | null>(null);
   // rAF handle for deferred store updates during flip
   const flipRafRef = useRef(0);
 
@@ -276,12 +253,8 @@ export default function EpubReaderView({
       prevInitialLocationRef.current = initialLocation;
       prevTotalRef.current = pagination.totalPages;
       currentPageRef.current = startPage;
-      const win = calcPageWindow(startPage, pagination.totalPages, pageWindowSize);
       /* eslint-disable-next-line react-hooks/set-state-in-effect */
-      setWindowStart(win.start);
-      windowStartRef.current = win.start;
-      currentLocalPageRef.current = startPage - win.start;
-      setCurrentLocalPage(startPage - win.start);
+      setCurrentPage(startPage);
       pageStore.setBoth(startPage);
       setSettingsKey(`init_${pagination.totalPages}_${pageDimensions.pageW}_${pageDimensions.pageH}`);
     } else if (isSettingsChange) {
@@ -291,11 +264,7 @@ export default function EpubReaderView({
       }
       prevTotalRef.current = pagination.totalPages;
       const gp = currentPageRef.current;
-      const win = calcPageWindow(gp, pagination.totalPages, pageWindowSize);
-      setWindowStart(win.start);
-      windowStartRef.current = win.start;
-      currentLocalPageRef.current = gp - win.start;
-      setCurrentLocalPage(gp - win.start);
+      setCurrentPage(gp);
       pageStore.setBoth(gp);
       setSettingsKey(`settings_${settingsFingerprint}`);
       setShowBook(false);
@@ -308,16 +277,12 @@ export default function EpubReaderView({
       if (isProgressRestore) prevInitialLocationRef.current = initialLocation;
       prevTotalRef.current = pagination.totalPages;
       currentPageRef.current = startPage;
-      const win = calcPageWindow(startPage, pagination.totalPages, pageWindowSize);
-      setWindowStart(win.start);
-      windowStartRef.current = win.start;
-      currentLocalPageRef.current = startPage - win.start;
-      setCurrentLocalPage(startPage - win.start);
+      setCurrentPage(startPage);
       pageStore.setBoth(startPage);
     } else if (pagination.totalPages !== prevTotalRef.current) {
       prevTotalRef.current = pagination.totalPages;
     }
-  }, [pagination.isReady, isLoading, pagination.totalPages, pagination.chapterPageRanges.length, startPage, savedCharOffset, savedPageNumber, savedSettingsFp, initialLocation, pageDimensions.pageW, pageDimensions.pageH, fontSize, lineHeightVal, fontFamily, pageStore, settingsFingerprint, pageToCharOffset, pageWindowSize]);
+  }, [pagination.isReady, isLoading, pagination.totalPages, pagination.chapterPageRanges.length, startPage, savedCharOffset, savedPageNumber, savedSettingsFp, initialLocation, pageDimensions.pageW, pageDimensions.pageH, fontSize, lineHeightVal, fontFamily, pageStore, settingsFingerprint, pageToCharOffset]);
 
   // ---- 淡入 ----
   useEffect(() => {
@@ -328,12 +293,10 @@ export default function EpubReaderView({
 
   // ---- refs for handleFlip 闭包，避免因 state 变化重建 callback ----
   const paginationRef = useRef(pagination);
-  const pageWindowSizeRef = useRef(pageWindowSize);
   const settingsFingerprintRef = useRef(settingsFingerprint);
   const chaptersMetaLenRef = useRef(chaptersMeta.length);
   const pageToCharOffsetRef = useRef(pageToCharOffset);
   useEffect(() => { paginationRef.current = pagination; }, [pagination]);
-  useEffect(() => { pageWindowSizeRef.current = pageWindowSize; }, [pageWindowSize]);
   useEffect(() => { settingsFingerprintRef.current = settingsFingerprint; }, [settingsFingerprint]);
   useEffect(() => { chaptersMetaLenRef.current = chaptersMeta.length; }, [chaptersMeta.length]);
   useEffect(() => { pageToCharOffsetRef.current = pageToCharOffset; }, [pageToCharOffset]);
@@ -342,88 +305,36 @@ export default function EpubReaderView({
   const handleFlip = useCallback(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (e: any) => {
-      const localPage = e.data as number;
-      const ws = windowStartRef.current;
-      const globalPage = Math.max(0, localPage + ws);
-      currentPageRef.current = globalPage;
-      // 仅更新 ref，不触发 React 重渲染。
-      // 库内部已经在正确页面，不需要 state → startPage → turnToPage 链。
-      currentLocalPageRef.current = localPage;
+      const page = e.data as number;
+      currentPageRef.current = page;
 
       // 所有副作用延迟到下一帧，不在翻页动画帧中触发重渲染或计算
       if (flipRafRef.current) cancelAnimationFrame(flipRafRef.current);
       flipRafRef.current = requestAnimationFrame(() => {
         // 批量更新 page + initialPage，只触发一次 notify
-        pageStore.setBoth(globalPage);
+        pageStore.setBoth(page);
 
         // 通知上层进度（上层自行防抖 2s，不阻塞翻页）
         const totalPages = paginationRef.current.totalPages;
         if (totalPages > 0 && onProgressUpdateRef.current) {
-          const pct = Math.round((globalPage / Math.max(1, totalPages - 1)) * 100);
-          const charOffset = pageToCharOffsetRef.current(globalPage);
+          const pct = Math.round((page / Math.max(1, totalPages - 1)) * 100);
+          const charOffset = pageToCharOffsetRef.current(page);
           const fp = settingsFingerprintRef.current;
-          onProgressUpdateRef.current(pct, `char:${charOffset}|page:${globalPage}|fp:${fp}`, { pageNumber: globalPage, settingsFingerprint: fp });
+          onProgressUpdateRef.current(pct, `char:${charOffset}|page:${page}|fp:${fp}`, { pageNumber: page, settingsFingerprint: fp });
         }
       });
 
       // 章节预取（轻量操作，同步执行）
       const chapterPageRanges = paginationRef.current.chapterPageRanges;
-      const info = getChapterForPage(globalPage, chapterPageRanges);
+      const info = getChapterForPage(page, chapterPageRanges);
       if (info) {
         updateCurrentChapter(info.chapterIndex);
         if (!isChapterLoaded(info.chapterIndex)) {
           ensureChaptersLoaded(Math.max(0, info.chapterIndex - 2), Math.min(chaptersMetaLenRef.current - 1, info.chapterIndex + 2));
         }
       }
-
-      // 窗口滑动检测（闭包内不捕获易变值，全部从 ref 读取）
-      const pws = pageWindowSizeRef.current;
-      const nearStart = localPage < SHIFT_THRESHOLD && ws > 0;
-      const nearEnd = localPage > pws - SHIFT_THRESHOLD && ws + pws < paginationRef.current.totalPages;
-      if (nearStart || nearEnd) {
-        pendingWindowShift.current = () => {
-          const gp = currentPageRef.current;
-          // 从 ref 读取最新值，避免使用翻页时捕获的过期 totalPages / pws
-          const tp = paginationRef.current.totalPages;
-          const pw = pageWindowSizeRef.current;
-          if (tp === 0) return;
-
-          // 短暂隐藏翻书区域，避免 children 重建时的视觉闪烁
-          const frame = document.querySelector('.book-frame') as HTMLElement | null;
-          if (frame) { frame.style.transition = 'none'; frame.style.opacity = '0'; }
-
-          const newWin = calcPageWindow(gp, tp, pw);
-          // 安全边界钳制，防止负索引或越界
-          const lp = Math.max(0, Math.min(gp - newWin.start, pw - 1));
-          setWindowStart(newWin.start);
-          windowStartRef.current = newWin.start;
-          currentLocalPageRef.current = lp;
-          setCurrentLocalPage(lp);
-          pageStore.setBoth(gp);
-
-          // React 渲染完成后恢复可见
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              if (frame) { frame.style.transition = 'opacity 0.15s ease-in'; frame.style.opacity = '1'; }
-            });
-          });
-        };
-      }
     },
-    // 依赖只保留稳定引用，避免因 windowStart / pagination 变化重建 callback
     [pageStore, updateCurrentChapter, isChapterLoaded, ensureChaptersLoaded],
-  );
-
-  const handleChangeState = useCallback(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (e: any) => {
-      if (e.data === 'read' && pendingWindowShift.current) {
-        const shift = pendingWindowShift.current;
-        pendingWindowShift.current = null;
-        shift();
-      }
-    },
-    [],
   );
 
   // ---- 键盘 ----
@@ -450,24 +361,22 @@ export default function EpubReaderView({
     return c;
   }, [pagination.chapterPageRanges]);
 
-  const windowedPages = useMemo(() => {
+  const allPages = useMemo(() => {
     if (pagination.totalPages === 0 || containerSize.w === 0) return [];
-    const end = Math.min(windowStart + pageWindowSize, pagination.totalPages);
-    return Array.from({ length: end - windowStart }, (_, i) => {
-      const gi = windowStart + i;
-      const info = getChapterForPage(gi, pagination.chapterPageRanges);
+    return Array.from({ length: pagination.totalPages }, (_, i) => {
+      const info = getChapterForPage(i, pagination.chapterPageRanges);
       const ci = info?.chapterIndex ?? 0;
-      return { globalPageIndex: gi, chapterIndex: ci, pageInChapter: info?.pageInChapter ?? 0, chapterPages: chapterPageCounts[ci] ?? 1 };
+      return { globalPageIndex: i, chapterIndex: ci, pageInChapter: info?.pageInChapter ?? 0, chapterPages: chapterPageCounts[ci] ?? 1 };
     });
-  }, [pagination.totalPages, pagination.chapterPageRanges, chapterPageCounts, containerSize.w, pageWindowSize, windowStart]);
+  }, [pagination.totalPages, pagination.chapterPageRanges, chapterPageCounts, containerSize.w]);
 
-  const stableChildren = useMemo(() => windowedPages.map(p => (
+  const stableChildren = useMemo(() => allPages.map(p => (
     <BookPage key={p.globalPageIndex} pageIndex={p.globalPageIndex}
       chapterHtml={chapters[p.chapterIndex]?.html || ''} pageInChapter={p.pageInChapter}
       chapterPages={p.chapterPages} pageWidth={contentWidth} pageHeight={contentHeight}
       pageNumber={p.globalPageIndex + 1} totalPages={pagination.totalPages}
       fontSize={fontSize} lineHeight={lineHeightVal} fontFamily={fontFamily} theme={theme} padding={pagePadding} />
-  )), [windowedPages, chapters, contentWidth, contentHeight, pagination.totalPages, fontSize, lineHeightVal, fontFamily, theme, pagePadding]);
+  )), [allPages, chapters, contentWidth, contentHeight, pagination.totalPages, fontSize, lineHeightVal, fontFamily, theme, pagePadding]);
 
   return (
     <div ref={containerRef} className={`book-container ${themeClass}`}>
@@ -504,7 +413,7 @@ export default function EpubReaderView({
         ` }} />
       )}
 
-      {windowedPages.length > 0 && containerSize.w > 0 && settingsKey && (
+      {allPages.length > 0 && containerSize.w > 0 && settingsKey && (
         <div className="book-frame"
           style={{ position: 'relative', opacity: showBook ? 1 : 0, transition: 'opacity 0.3s ease-in' }}>
           {!isMobile && <div className="book-shadow" />}
@@ -520,8 +429,8 @@ export default function EpubReaderView({
               flippingTime={isMobile ? 300 : 400}
               drawShadow={false} maxShadowOpacity={0}
               showPageCorners={false} disableFlipByClick={isMobile} clickEventForward={!isMobile}
-              swipeDistance={15} startPage={currentLocalPage} startZIndex={2} autoSize={false}
-              onFlip={handleFlip} onChangeState={handleChangeState} style={{}}>
+              swipeDistance={15} startPage={currentPage} startZIndex={2} autoSize={false}
+              onFlip={handleFlip} style={{}}>
               {stableChildren}
             </HTMLFlipBook>
           </PageStoreContext.Provider>
