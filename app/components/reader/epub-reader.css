@@ -156,6 +156,11 @@
   overflow: hidden;
   box-sizing: border-box;
 
+  /* 定位锚点：必须在 CSS class 中设置，不能用 inline style。
+   * page-flip 库在翻页动画中会用 style.cssText = "..." 完全替换 inline style，
+   * 导致 position: relative 丢失 → 内部绝对定位的子元素瞬间失去锚点 → 内容闪烁。 */
+  position: relative;
+
   /* 性能优化：告诉浏览器每页内容独立，不影响其他元素布局 */
   contain: layout style paint;
 

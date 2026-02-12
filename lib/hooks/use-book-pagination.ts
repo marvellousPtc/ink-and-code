@@ -308,14 +308,24 @@ function estimateCharsPerPage(
 }
 
 /**
- * 根据全局页码获取所在章节及章内页码
+ * 根据全局页码获取所在章节及章内页码（二分查找，O(log n)）
  */
 export function getChapterForPage(
   page: number,
   ranges: ChapterPageRange[],
 ): { chapterIndex: number; pageInChapter: number } | null {
-  for (const range of ranges) {
-    if (page >= range.startPage && page < range.startPage + range.pageCount) {
+  if (ranges.length === 0) return null;
+
+  let lo = 0;
+  let hi = ranges.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >>> 1;
+    const range = ranges[mid];
+    if (page < range.startPage) {
+      hi = mid - 1;
+    } else if (page >= range.startPage + range.pageCount) {
+      lo = mid + 1;
+    } else {
       return {
         chapterIndex: range.chapterIndex,
         pageInChapter: page - range.startPage,

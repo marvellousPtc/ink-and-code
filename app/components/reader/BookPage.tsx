@@ -128,7 +128,6 @@ const BookPage = React.forwardRef<HTMLDivElement, BookPageProps>(
         style={{
           width: pageWidth + padding * 2,
           height: pageHeight + padding * 2 + 30,
-          position: 'relative',
         }}
       >
         {activeHtml ? (
