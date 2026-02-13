@@ -122,6 +122,9 @@ export function useBookPagination(
         if (!chapter.html) continue; // 跳过未加载的章节
 
         // 为每个章节设置测量容器
+        // CSS 必须与 EpubReaderView 中 .epub-page-content 的样式完全一致，
+        // 否则测量的列分页与实际渲染不同，导致 blockMap 的 pageInChapter 偏移，
+        // 锚点定位到错误页面。
         measureEl.innerHTML = `
           <style>
             .epub-measure-container * {
@@ -133,8 +136,13 @@ export function useBookPagination(
               height: auto !important;
               object-fit: contain !important;
             }
-            .epub-measure-container {
-              text-align: justify !important;
+            .epub-measure-container a {
+              color: inherit !important;
+              text-decoration: underline;
+            }
+            .epub-measure-container h1, .epub-measure-container h2, .epub-measure-container h3 {
+              margin-top: 0.5em;
+              margin-bottom: 0.3em;
             }
             .epub-measure-container p {
               margin: 0.5em 0;
@@ -145,6 +153,12 @@ export function useBookPagination(
             .epub-measure-container h4, .epub-measure-container h5, .epub-measure-container h6 {
               text-indent: 0 !important;
               text-align: left !important;
+            }
+            .epub-measure-container blockquote {
+              text-indent: 0 !important;
+            }
+            .epub-measure-container {
+              text-align: justify !important;
             }
             ${styles}
           </style>
