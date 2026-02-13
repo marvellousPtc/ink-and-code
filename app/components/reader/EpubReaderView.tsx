@@ -217,6 +217,8 @@ export default function EpubReaderView({
   const flipRafRef = useRef(0);
   // 当前阅读位置的锚点（设备/排版无关，用于字体变更后精确重定位）
   const currentAnchorRef = useRef<ReadingAnchor | null>(null);
+  // 用户是否已翻页（一旦翻页则不再自动修正位置，避免打断阅读）
+  const userHasFlippedRef = useRef(false);
 
   const onProgressUpdateRef = useRef(onProgressUpdate);
   useEffect(() => { onProgressUpdateRef.current = onProgressUpdate; }, [onProgressUpdate]);
@@ -262,6 +264,7 @@ export default function EpubReaderView({
       // 初始化锚点
       currentAnchorRef.current = parsedLocation.anchor
         || computeAnchorForPage(startPage, pagination.chapterPageRanges, pagination.blockMaps);
+      console.log('[Reader] Init → page:', startPage, 'anchor:', parsedLocation.anchor, 'totalPages:', pagination.totalPages, 'blockMapsCount:', pagination.blockMaps.length);
       setCurrentPage(startPage);
       pageStore.setBoth(startPage);
       setSettingsKey(`init_${pagination.totalPages}_${pageDimensions.pageW}_${pageDimensions.pageH}`);
@@ -308,6 +311,27 @@ export default function EpubReaderView({
     } else {
       prevSettingsFpRef.current = settingsFingerprint;
     }
+
+    // ---- 渐进加载自动修正 ----
+    // 章节渐进加载 → 分页重新计算 → chapterPageRanges 变化 → startPage 重新计算。
+    // 如果用户还没翻页（初始打开阶段），自动修正到更新后的正确页码。
+    // 一旦用户开始翻页则停止修正，避免打断阅读。
+    if (
+      initializedRef.current &&
+      !userHasFlippedRef.current &&
+      !pendingSettingsNavRef.current &&
+      startPage > 0 &&
+      startPage !== currentPageRef.current
+    ) {
+      console.log('[Reader] AutoCorrect → old:', currentPageRef.current, '→ new:', startPage, 'totalPages:', pagination.totalPages, 'blockMaps:', pagination.blockMaps.length);
+      currentPageRef.current = startPage;
+      currentAnchorRef.current = parsedLocation.anchor
+        || computeAnchorForPage(startPage, pagination.chapterPageRanges, pagination.blockMaps);
+      setCurrentPage(startPage);
+      pageStore.setBoth(startPage);
+      // 用新 settingsKey 让 flipbook 重新挂载到正确页码（turnToPage 不如 remount 可靠）
+      setSettingsKey(`autocorrect_${pagination.totalPages}_${startPage}`);
+    }
   }, [pagination.isReady, isLoading, pagination.totalPages, pagination.blockMaps, pagination.chapterPageRanges, startPage, parsedLocation, initialLocation, pageDimensions.pageW, pageDimensions.pageH, fontSize, lineHeightVal, fontFamily, pageStore, settingsFingerprint, pageToCharOffset]);
 
   // ---- 淡入 ----
@@ -343,6 +367,9 @@ export default function EpubReaderView({
         // 页码未变（如组件 remount 时的初始回调），跳过锚点更新和进度保存，
         // 避免用不完整的 blockMaps 反算出错误锚点覆盖已保存的精确位置。
         if (page === prevPage) return;
+
+        // 标记用户已主动翻页 → 停止渐进加载自动修正位置
+        userHasFlippedRef.current = true;
 
         // 计算并缓存当前页的锚点（用于字体变更后重定位）
         const p = paginationRef.current;

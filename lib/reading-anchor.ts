@@ -160,14 +160,19 @@ export function buildBlockMap(
     return { chapterIndex, blocks };
   }
 
+  // 用 getBoundingClientRect 计算元素所在列（比 offsetLeft 更可靠）
+  // offsetLeft 在多列布局中的行为因浏览器而异，getBoundingClientRect 返回实际渲染位置
+  const containerRect = containerEl.getBoundingClientRect();
   let cumulativeTextOffset = 0;
 
   for (let i = 0; i < leafElements.length; i++) {
     const el = leafElements[i] as HTMLElement;
     const text = el.textContent || '';
 
-    // 通过 offsetLeft 确定元素在哪一列（哪一页）
-    const pageInChapter = Math.max(0, Math.floor(el.offsetLeft / columnWidth));
+    // 元素相对于多列容器的水平偏移 → 所在列号（页码）
+    const elRect = el.getBoundingClientRect();
+    const relativeLeft = elRect.left - containerRect.left;
+    const pageInChapter = Math.max(0, Math.floor(relativeLeft / columnWidth));
 
     blocks.push({
       blockIndex: i,
@@ -178,6 +183,12 @@ export function buildBlockMap(
     });
 
     cumulativeTextOffset += text.length;
+  }
+
+  // debug: 输出前几个块的位置信息
+  if (blocks.length > 0) {
+    const maxPage = blocks.reduce((m, b) => Math.max(m, b.pageInChapter), 0);
+    console.log(`[buildBlockMap] ch:${chapterIndex} blocks:${blocks.length} pages:${maxPage + 1} colW:${columnWidth} containerLeft:${Math.round(containerRect.left)}`);
   }
 
   return { chapterIndex, blocks };
@@ -284,9 +295,16 @@ export function anchorToPage(
     }
   }
 
-  if (!block) return range.startPage;
+  if (!block) {
+    console.log('[anchorToPage] no block found → fallback to range.startPage:', range.startPage, 'anchor:', anchor);
+    return range.startPage;
+  }
 
-  return range.startPage + block.pageInChapter;
+  const result = range.startPage + block.pageInChapter;
+  console.log('[anchorToPage] ch:', anchor.chapterIndex, 'blk:', anchor.blockIndex,
+    '→ range.startPage:', range.startPage, 'pageInChapter:', block.pageInChapter,
+    '= globalPage:', result, 'snippet:', block.snippet);
+  return result;
 }
 
 // ---- 内部辅助 ----
