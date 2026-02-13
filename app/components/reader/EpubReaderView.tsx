@@ -5,7 +5,7 @@
  * :copyright: (c) 2026, Tungee
  * :date created: 2026-02-07 11:33:11
  * :last editor: PTC
- * :date last edited: 2026-02-13 09:44:13
+ * :date last edited: 2026-02-13 09:58:42
  */
 'use client';
 
@@ -265,8 +265,10 @@ export default function EpubReaderView({
       }
       prevTotalRef.current = pagination.totalPages;
       const gp = currentPageRef.current;
-      // 更新锚点到新分页的位置
-      currentAnchorRef.current = computeAnchorForPage(gp, pagination.chapterPageRanges, pagination.blockMaps);
+      // 不从页码反算锚点 — 锚点是基于内容位置的，与排版设置无关。
+      // anchor → page → anchor 转换有损（pageToAnchor 返回页首第一个块），
+      // 且渐进加载期间 blockMaps 不完整时会导致锚点漂移到错误章节。
+      // 只有用户真正翻页时才更新 currentAnchorRef。
       setCurrentPage(gp);
       pageStore.setBoth(gp);
       setSettingsKey(`settings_${settingsFingerprint}`);
@@ -312,12 +314,17 @@ export default function EpubReaderView({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (e: any) => {
       const page = e.data as number;
+      const prevPage = currentPageRef.current;
       currentPageRef.current = page;
 
       // 所有副作用延迟到下一帧，不在翻页动画帧中触发重渲染或计算
       if (flipRafRef.current) cancelAnimationFrame(flipRafRef.current);
       flipRafRef.current = requestAnimationFrame(() => {
         pageStore.setBoth(page);
+
+        // 页码未变（如组件 remount 时的初始回调），跳过锚点更新和进度保存，
+        // 避免用不完整的 blockMaps 反算出错误锚点覆盖已保存的精确位置。
+        if (page === prevPage) return;
 
         // 计算并缓存当前页的锚点（用于字体变更后重定位）
         const p = paginationRef.current;
