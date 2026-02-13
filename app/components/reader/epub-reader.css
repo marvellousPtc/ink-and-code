@@ -434,3 +434,608 @@
 .stf__wrapper {
   --shadow-color: rgba(0, 0, 0, 0.15);
 }
+
+/* ============================================
+   划线模式
+   ============================================ */
+
+/* 划线模式时书页边框呼吸光效 */
+.hl-selection-active {
+  cursor: text;
+}
+
+.hl-selection-active .book-page {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.hl-selection-active::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 15;
+  border: 1.5px solid rgba(196, 154, 108, 0.25);
+  animation: hl-border-pulse 2s ease-in-out infinite;
+}
+
+@keyframes hl-border-pulse {
+  0%, 100% { border-color: rgba(196, 154, 108, 0.15); }
+  50% { border-color: rgba(196, 154, 108, 0.35); }
+}
+
+.book-theme-dark .hl-selection-active::after {
+  border-color: rgba(180, 150, 100, 0.15);
+  animation-name: hl-border-pulse-dark;
+}
+
+@keyframes hl-border-pulse-dark {
+  0%, 100% { border-color: rgba(180, 150, 100, 0.1); }
+  50% { border-color: rgba(180, 150, 100, 0.25); }
+}
+
+/* 划线模式切换按钮 */
+.hl-mode-toggle {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 12px;
+  border-radius: 22px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  font-size: 11px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: rgba(0, 0, 0, 0.4);
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.06);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: auto;
+}
+
+.hl-mode-toggle:hover {
+  background: rgba(255, 255, 255, 0.85);
+  color: rgba(0, 0, 0, 0.6);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+
+.hl-mode-toggle:active {
+  transform: translateY(0);
+}
+
+.hl-mode-toggle.hl-mode-active {
+  background: rgba(196, 154, 108, 0.15);
+  color: #8a6a3e;
+  border-color: rgba(196, 154, 108, 0.3);
+  box-shadow: 0 1px 8px rgba(196, 154, 108, 0.15);
+}
+
+.hl-mode-toggle.hl-mode-active:hover {
+  background: rgba(196, 154, 108, 0.22);
+  box-shadow: 0 2px 12px rgba(196, 154, 108, 0.2);
+}
+
+.hl-mode-label {
+  font-weight: 500;
+  letter-spacing: 0.3px;
+}
+
+.book-theme-dark .hl-mode-toggle {
+  color: rgba(255, 255, 255, 0.35);
+  background: rgba(40, 36, 32, 0.7);
+  border-color: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
+}
+
+.book-theme-dark .hl-mode-toggle:hover {
+  background: rgba(50, 46, 42, 0.85);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.book-theme-dark .hl-mode-toggle.hl-mode-active {
+  background: rgba(160, 132, 94, 0.18);
+  color: #c4a06c;
+  border-color: rgba(160, 132, 94, 0.25);
+  box-shadow: 0 1px 8px rgba(160, 132, 94, 0.15);
+}
+
+.book-theme-sepia .hl-mode-toggle {
+  color: rgba(90, 70, 40, 0.35);
+  background: rgba(244, 236, 216, 0.7);
+  border-color: rgba(90, 70, 40, 0.06);
+}
+
+.book-theme-sepia .hl-mode-toggle.hl-mode-active {
+  background: rgba(160, 120, 60, 0.12);
+  color: #7a5a2e;
+  border-color: rgba(160, 120, 60, 0.2);
+}
+
+/* ============================================
+   高亮划线 & 笔记
+   ============================================ */
+
+/* 高亮 <mark> 基础样式 — 内联元素，不影响分页 */
+.hl-mark {
+  background-color: transparent;
+  border-bottom: 2px solid transparent;
+  border-radius: 1px;
+  padding: 0 1px;
+  margin: 0 -1px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+/* 5 种高亮颜色 */
+.hl-yellow { background-color: rgba(255, 220, 80, 0.35); border-bottom-color: rgba(220, 180, 40, 0.6); }
+.hl-green  { background-color: rgba(120, 210, 120, 0.30); border-bottom-color: rgba(80, 170, 80, 0.6); }
+.hl-blue   { background-color: rgba(120, 180, 255, 0.30); border-bottom-color: rgba(80, 140, 220, 0.6); }
+.hl-pink   { background-color: rgba(255, 140, 170, 0.30); border-bottom-color: rgba(220, 100, 130, 0.6); }
+.hl-purple { background-color: rgba(180, 140, 255, 0.30); border-bottom-color: rgba(140, 100, 220, 0.6); }
+
+/* 深色主题高亮：提高不透明度 */
+.book-theme-dark .hl-yellow { background-color: rgba(255, 220, 80, 0.20); border-bottom-color: rgba(220, 180, 40, 0.5); }
+.book-theme-dark .hl-green  { background-color: rgba(120, 210, 120, 0.18); border-bottom-color: rgba(80, 170, 80, 0.5); }
+.book-theme-dark .hl-blue   { background-color: rgba(120, 180, 255, 0.18); border-bottom-color: rgba(80, 140, 220, 0.5); }
+.book-theme-dark .hl-pink   { background-color: rgba(255, 140, 170, 0.18); border-bottom-color: rgba(220, 100, 130, 0.5); }
+.book-theme-dark .hl-purple { background-color: rgba(180, 140, 255, 0.18); border-bottom-color: rgba(140, 100, 220, 0.5); }
+
+/* 有笔记的高亮：右上角小圆点指示 */
+.hl-mark[data-has-note]::after {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.4;
+  vertical-align: super;
+  margin-left: 1px;
+  font-size: 0.6em;
+}
+
+/* ---- 高亮工具栏 ---- */
+.hl-toolbar {
+  position: absolute;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 4px 16px rgba(0, 0, 0, 0.1),
+    0 0 0 1px rgba(0, 0, 0, 0.04);
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  pointer-events: auto;
+  animation: hl-toolbar-in 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.book-theme-dark .hl-toolbar {
+  background: rgba(50, 46, 42, 0.97);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.1),
+    0 4px 16px rgba(0, 0, 0, 0.35),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.book-theme-sepia .hl-toolbar {
+  background: rgba(244, 236, 216, 0.97);
+  box-shadow:
+    0 1px 2px rgba(90, 70, 40, 0.04),
+    0 4px 16px rgba(90, 70, 40, 0.1),
+    0 0 0 1px rgba(90, 70, 40, 0.06);
+}
+
+@keyframes hl-toolbar-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.9); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* 工具栏下方小三角 */
+.hl-toolbar::after {
+  content: '';
+  position: absolute;
+  bottom: -5px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 10px;
+  height: 10px;
+  background: inherit;
+  border-radius: 0 0 2px 0;
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+
+/* 颜色圆点按钮 */
+.hl-toolbar-color {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2.5px solid rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.hl-toolbar-color:hover {
+  transform: scale(1.2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.hl-toolbar-color:active {
+  transform: scale(0.92);
+}
+
+.book-theme-dark .hl-toolbar-color {
+  border-color: rgba(40, 36, 32, 0.6);
+}
+
+.hl-toolbar-color.c-yellow { background: linear-gradient(135deg, #ffe066, #ffc800); }
+.hl-toolbar-color.c-green  { background: linear-gradient(135deg, #7ee87e, #4caf50); }
+.hl-toolbar-color.c-blue   { background: linear-gradient(135deg, #72b4ff, #2196f3); }
+.hl-toolbar-color.c-pink   { background: linear-gradient(135deg, #ffa0b8, #e91e63); }
+.hl-toolbar-color.c-purple { background: linear-gradient(135deg, #b89aff, #7c4dff); }
+
+/* 分隔线 */
+.hl-toolbar-sep {
+  width: 1px;
+  height: 20px;
+  background: rgba(0, 0, 0, 0.08);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+.book-theme-dark .hl-toolbar-sep {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* 工具栏按钮（笔记、复制） */
+.hl-toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: rgba(0, 0, 0, 0.5);
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.hl-toolbar-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.8);
+  transform: scale(1.05);
+}
+
+.hl-toolbar-btn:active {
+  transform: scale(0.95);
+}
+
+.book-theme-dark .hl-toolbar-btn {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.book-theme-dark .hl-toolbar-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* ---- 笔记弹窗 ---- */
+.hl-popover {
+  position: absolute;
+  z-index: 100;
+  width: 300px;
+  max-width: 90vw;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 4px 16px rgba(0, 0, 0, 0.08),
+    0 12px 32px rgba(0, 0, 0, 0.08),
+    0 0 0 1px rgba(0, 0, 0, 0.04);
+  backdrop-filter: blur(20px) saturate(1.2);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  padding: 16px;
+  pointer-events: auto;
+  animation: hl-popover-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes hl-popover-in {
+  from { opacity: 0; scale: 0.92; }
+  to { opacity: 1; scale: 1; }
+}
+
+.book-theme-dark .hl-popover {
+  background: rgba(45, 41, 37, 0.98);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.1),
+    0 4px 16px rgba(0, 0, 0, 0.3),
+    0 12px 32px rgba(0, 0, 0, 0.25),
+    0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+.book-theme-sepia .hl-popover {
+  background: rgba(244, 236, 216, 0.98);
+  box-shadow:
+    0 1px 2px rgba(90, 70, 40, 0.04),
+    0 4px 16px rgba(90, 70, 40, 0.08),
+    0 12px 32px rgba(90, 70, 40, 0.06),
+    0 0 0 1px rgba(90, 70, 40, 0.06);
+}
+
+.hl-popover-text {
+  font-size: 13px;
+  line-height: 1.65;
+  color: rgba(0, 0, 0, 0.6);
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-left: 3px solid currentColor;
+  border-radius: 0 8px 8px 0;
+  background: rgba(0, 0, 0, 0.025);
+  max-height: 80px;
+  overflow-y: auto;
+  font-style: italic;
+}
+
+.book-theme-dark .hl-popover-text {
+  color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.hl-popover-note {
+  width: 100%;
+  min-height: 68px;
+  max-height: 120px;
+  border: 1.5px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.55;
+  resize: vertical;
+  background: transparent;
+  color: inherit;
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.hl-popover-note::placeholder {
+  color: rgba(0, 0, 0, 0.25);
+}
+
+.hl-popover-note:focus {
+  border-color: rgba(196, 154, 108, 0.4);
+  box-shadow: 0 0 0 3px rgba(196, 154, 108, 0.08);
+}
+
+.book-theme-dark .hl-popover-note {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.book-theme-dark .hl-popover-note::placeholder {
+  color: rgba(255, 255, 255, 0.2);
+}
+
+.book-theme-dark .hl-popover-note:focus {
+  border-color: rgba(180, 150, 100, 0.3);
+  box-shadow: 0 0 0 3px rgba(180, 150, 100, 0.06);
+}
+
+.hl-popover-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+}
+
+.hl-popover-colors {
+  display: flex;
+  gap: 5px;
+}
+
+.hl-popover-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.hl-popover-save,
+.hl-popover-delete {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 14px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.hl-popover-save {
+  background: rgba(196, 154, 108, 0.15);
+  color: #8a6a3e;
+}
+
+.hl-popover-save:hover {
+  background: rgba(196, 154, 108, 0.25);
+}
+
+.hl-popover-save:active {
+  transform: scale(0.97);
+}
+
+.book-theme-dark .hl-popover-save {
+  background: rgba(180, 150, 100, 0.15);
+  color: #c4a06c;
+}
+
+.hl-popover-delete {
+  background: transparent;
+  color: rgba(200, 50, 50, 0.6);
+}
+
+.hl-popover-delete:hover {
+  background: rgba(220, 60, 60, 0.08);
+  color: rgba(200, 50, 50, 0.8);
+}
+
+.hl-popover-delete:active {
+  transform: scale(0.97);
+}
+
+/* ---- 只读笔记查看器 ---- */
+.hl-note-viewer {
+  width: 260px;
+  max-width: 85vw;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.06),
+    0 8px 24px rgba(0, 0, 0, 0.08),
+    0 0 0 1px rgba(0, 0, 0, 0.03);
+  backdrop-filter: blur(20px) saturate(1.2);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  overflow: hidden;
+  animation: hl-popover-in 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  pointer-events: auto;
+}
+
+.book-theme-dark .hl-note-viewer {
+  background: rgba(45, 41, 37, 0.98);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.15),
+    0 8px 24px rgba(0, 0, 0, 0.25),
+    0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.book-theme-sepia .hl-note-viewer {
+  background: rgba(244, 236, 216, 0.98);
+}
+
+/* 顶部颜色条 */
+.hl-nv-bar {
+  height: 3px;
+  width: 100%;
+}
+
+/* 引用文字 */
+.hl-nv-quote {
+  padding: 12px 14px 8px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: rgba(0, 0, 0, 0.5);
+  font-style: italic;
+  max-height: 72px;
+  overflow-y: auto;
+}
+
+.book-theme-dark .hl-nv-quote {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* 笔记内容 */
+.hl-nv-note {
+  margin: 0 14px 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.03);
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.book-theme-dark .hl-nv-note {
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.hl-nv-empty {
+  padding: 0 14px 10px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.2);
+  font-style: italic;
+}
+
+.book-theme-dark .hl-nv-empty {
+  color: rgba(255, 255, 255, 0.15);
+}
+
+/* 底部操作栏 */
+.hl-nv-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px 10px;
+}
+
+.hl-nv-edit {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: none;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  color: rgba(0, 0, 0, 0.4);
+  background: rgba(0, 0, 0, 0.04);
+  transition: all 0.15s ease;
+}
+
+.hl-nv-edit:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.book-theme-dark .hl-nv-edit {
+  color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.book-theme-dark .hl-nv-edit:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.hl-nv-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  color: rgba(0, 0, 0, 0.25);
+  background: transparent;
+  transition: all 0.15s ease;
+}
+
+.hl-nv-close:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.book-theme-dark .hl-nv-close {
+  color: rgba(255, 255, 255, 0.2);
+}
+
+.book-theme-dark .hl-nv-close:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.5);
+}

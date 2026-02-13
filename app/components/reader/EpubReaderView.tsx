@@ -31,7 +31,16 @@ import {
   anchorToPage as computePageForAnchor,
 } from '@/lib/reading-anchor';
 import type { ReadingAnchor } from '@/lib/reading-anchor';
+import {
+  selectionToHighlightAnchor,
+  serializeHighlightLoc,
+  deserializeHighlightLoc,
+  type HighlightData,
+} from '@/lib/highlight-anchor';
+import type { HighlightItem } from '@/lib/hooks/use-library';
 import BookPage from './BookPage';
+import HighlightToolbar from './HighlightToolbar';
+import NotePopover from './NotePopover';
 import './epub-reader.css';
 
 // ---- 页面状态外部存储（BookPage 子组件订阅，避免父组件重渲染） ----
@@ -77,14 +86,19 @@ interface EpubReaderViewProps {
   bookId: string;
   initialLocation?: string;
   settings?: ReadingSettingsData | null;
+  highlights?: HighlightItem[];
   onProgressUpdate?: (percentage: number, location?: string, extra?: { pageNumber?: number; settingsFingerprint?: string }) => void;
   onAddBookmark?: (location: string, title?: string) => void;
-  onAddHighlight?: (text: string, location: string, color?: string) => void;
+  onAddHighlight?: (text: string, location: string, color?: string, note?: string) => void;
+  onUpdateHighlight?: (id: string, data: { color?: string; note?: string }) => void;
+  onDeleteHighlight?: (id: string) => void;
   onReady?: () => void;
+  /** 注册导航函数，供外部（如侧边栏高亮列表）调用跳转到指定位置 */
+  onRegisterNavigate?: (fn: (location: string) => void) => void;
 }
 
 export default function EpubReaderView({
-  bookId, initialLocation, settings, onProgressUpdate, onReady,
+  bookId, initialLocation, settings, highlights: rawHighlights, onProgressUpdate, onAddHighlight, onUpdateHighlight, onDeleteHighlight, onReady, onRegisterNavigate,
 }: EpubReaderViewProps) {
   // ---- 容器尺寸 ----
   const containerRef = useRef<HTMLDivElement>(null);
@@ -424,6 +438,248 @@ export default function EpubReaderView({
     [pageStore, updateCurrentChapter, isChapterLoaded, ensureChaptersLoaded],
   );
 
+  // ---- 高亮数据：按章节分组 + 转换为 HighlightData ----
+  const highlightsByChapter = useMemo(() => {
+    const map: Record<number, HighlightData[]> = {};
+    if (!rawHighlights || rawHighlights.length === 0) return map;
+    for (const hl of rawHighlights) {
+      const anchor = deserializeHighlightLoc(hl.location);
+      if (!anchor) continue;
+      const data: HighlightData = {
+        id: hl.id,
+        chapterIndex: anchor.chapterIndex,
+        startBlockIndex: anchor.startBlockIndex,
+        startCharOffset: anchor.startCharOffset,
+        endBlockIndex: anchor.endBlockIndex,
+        endCharOffset: anchor.endCharOffset,
+        text: hl.text,
+        color: hl.color,
+        note: hl.note,
+      };
+      if (!map[data.chapterIndex]) map[data.chapterIndex] = [];
+      map[data.chapterIndex].push(data);
+    }
+    return map;
+  }, [rawHighlights]);
+
+  // ---- 高亮工具栏状态 ----
+  interface ToolbarState {
+    visible: boolean;
+    x: number;
+    y: number;
+    chapterIndex: number;
+    text: string;
+  }
+  const [toolbar, setToolbar] = useState<ToolbarState>({ visible: false, x: 0, y: 0, chapterIndex: 0, text: '' });
+  // 保存选区锚点，以便在工具栏操作时使用
+  const pendingHighlightRef = useRef<{ chapterIndex: number; location: string; text: string } | null>(null);
+
+  // ---- 笔记弹窗状态 ----
+  interface PopoverState {
+    visible: boolean;
+    readOnly: boolean;
+    x: number;
+    y: number;
+    highlightId: string;
+    text: string;
+    color: string;
+    note: string | null;
+  }
+  const [popover, setPopover] = useState<PopoverState>({ visible: false, readOnly: false, x: 0, y: 0, highlightId: '', text: '', color: 'yellow', note: null });
+
+  // ---- 划线模式（禁用翻页手势，启用文字选择） ----
+  const [selectionMode, setSelectionMode] = useState(false);
+  const bookFrameRef = useRef<HTMLDivElement>(null);
+
+  const toggleSelectionMode = useCallback(() => {
+    setToolbar(prev => prev.visible ? { ...prev, visible: false } : prev);
+    setPopover(prev => prev.visible ? { ...prev, visible: false } : prev);
+    window.getSelection()?.removeAllRanges();
+    setSelectionMode(prev => !prev);
+  }, []);
+
+  // 事件拦截层：capture 阶段拦截 mousedown/touchstart。
+  // 1. 始终拦截点击 <mark> 高亮文字（阻止翻页，让 mouseup 显示弹窗）
+  // 2. 划线模式下拦截所有事件（阻止翻页，启用文字选择）
+  // 仅 stopPropagation()，不 preventDefault() — 浏览器原生行为不受影响。
+  // 用 ref 追踪 selectionMode，避免闭包捕获旧值，同时减少 effect 重建次数。
+  const selectionModeForInterceptRef = useRef(selectionMode);
+  useEffect(() => { selectionModeForInterceptRef.current = selectionMode; }, [selectionMode]);
+
+  useEffect(() => {
+    const frame = bookFrameRef.current;
+    if (!frame) return;
+
+    const intercept = (e: Event) => {
+      const t = e.target as HTMLElement;
+      // 不拦截 UI 控件
+      if (t.closest('.hl-toolbar') || t.closest('.hl-popover') || t.closest('.hl-note-viewer') || t.closest('.hl-mode-toggle')) return;
+      // 始终拦截点击高亮文字
+      if (t.closest('mark.hl-mark')) { e.stopPropagation(); return; }
+      // 划线模式：拦截全部
+      if (selectionModeForInterceptRef.current) { e.stopPropagation(); }
+    };
+
+    frame.addEventListener('mousedown', intercept, true);
+    frame.addEventListener('touchstart', intercept, true);
+    return () => {
+      frame.removeEventListener('mousedown', intercept, true);
+      frame.removeEventListener('touchstart', intercept, true);
+    };
+    // settingsKey 变化时书页重新挂载，bookFrameRef 更新，需要重新绑定
+  }, [settingsKey]);
+
+  // 只读笔记弹窗 → 切换到编辑模式
+  const handleSwitchToEdit = useCallback(() => {
+    setPopover(prev => ({ ...prev, readOnly: false }));
+    setSelectionMode(true);
+  }, []);
+
+  // ---- 文字选择 → 显示工具栏 / 点击高亮 → 显示笔记弹窗 ----
+  const selectionModeRef = useRef(selectionMode);
+  useEffect(() => { selectionModeRef.current = selectionMode; }, [selectionMode]);
+
+  const handleMouseUp = useCallback((e: MouseEvent) => {
+    // 忽略 UI 控件内部的事件
+    const target = e.target as HTMLElement;
+    if (target.closest('.hl-toolbar') || target.closest('.hl-popover') || target.closest('.hl-note-viewer')) return;
+
+    // 检查是否点击了已高亮的文字
+    const markEl = target.closest('mark.hl-mark') as HTMLElement | null;
+    if (markEl) {
+      const hlId = markEl.getAttribute('data-hl-id');
+      if (hlId && rawHighlights) {
+        const hl = rawHighlights.find(h => h.id === hlId);
+        if (hl) {
+          const rect = markEl.getBoundingClientRect();
+          const frameRect = bookFrameRef.current?.getBoundingClientRect();
+          if (frameRect) {
+            setToolbar({ visible: false, x: 0, y: 0, chapterIndex: 0, text: '' });
+            setPopover({
+              visible: true,
+              readOnly: !selectionModeRef.current, // 非划线模式 → 只读
+              x: rect.left + rect.width / 2 - frameRect.left,
+              y: rect.top - frameRect.top,
+              highlightId: hl.id,
+              text: hl.text,
+              color: hl.color,
+              note: hl.note,
+            });
+          }
+          return;
+        }
+      }
+    }
+
+    // 关闭弹窗
+    setPopover(prev => prev.visible ? { ...prev, visible: false } : prev);
+
+    // 非划线模式下不处理文字选择
+    if (!selectionModeRef.current) {
+      setToolbar(prev => prev.visible ? { ...prev, visible: false } : prev);
+      return;
+    }
+
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) {
+      setToolbar(prev => prev.visible ? { ...prev, visible: false } : prev);
+      return;
+    }
+
+    const text = sel.toString().trim();
+    if (!text) {
+      setToolbar(prev => prev.visible ? { ...prev, visible: false } : prev);
+      return;
+    }
+
+    // 找到包含选区的 .epub-page-content 元素
+    const anchorNode = sel.anchorNode;
+    const contentEl = anchorNode && (anchorNode.nodeType === Node.TEXT_NODE ? anchorNode.parentElement : anchorNode as HTMLElement)?.closest('.epub-page-content') as HTMLElement | null;
+    if (!contentEl) {
+      setToolbar(prev => prev.visible ? { ...prev, visible: false } : prev);
+      return;
+    }
+
+    // 确定章节索引：从 BookPage 的页面信息推算
+    const page = currentPageRef.current;
+    const info = getChapterForPage(page, paginationRef.current.chapterPageRanges);
+    if (!info) return;
+
+    const hlAnchor = selectionToHighlightAnchor(contentEl, info.chapterIndex);
+    if (!hlAnchor) return;
+
+    const location = serializeHighlightLoc(hlAnchor);
+    pendingHighlightRef.current = { chapterIndex: info.chapterIndex, location, text };
+
+    // 定位工具栏
+    const range = sel.getRangeAt(0);
+    const rangeRect = range.getBoundingClientRect();
+    const frameRect = bookFrameRef.current?.getBoundingClientRect();
+    if (frameRect) {
+      setToolbar({
+        visible: true,
+        x: rangeRect.left + rangeRect.width / 2 - frameRect.left,
+        y: rangeRect.top - frameRect.top,
+        chapterIndex: info.chapterIndex,
+        text,
+      });
+    }
+  }, [rawHighlights]);
+
+  // 监听 mouseup
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    el.addEventListener('mouseup', handleMouseUp);
+    return () => el.removeEventListener('mouseup', handleMouseUp);
+  }, [handleMouseUp]);
+
+  // ---- 工具栏操作回调 ----
+  const handleToolbarHighlight = useCallback((color: string) => {
+    const pending = pendingHighlightRef.current;
+    if (!pending) return;
+    onAddHighlight?.(pending.text, pending.location, color);
+    pendingHighlightRef.current = null;
+    window.getSelection()?.removeAllRanges();
+  }, [onAddHighlight]);
+
+  const handleToolbarNote = useCallback(() => {
+    const pending = pendingHighlightRef.current;
+    if (!pending) return;
+    // 先创建高亮（默认黄色），然后通过监听新增高亮来弹出笔记弹窗
+    onAddHighlight?.(pending.text, pending.location, 'yellow');
+    pendingHighlightRef.current = null;
+    window.getSelection()?.removeAllRanges();
+    // TODO: 理想情况下应等高亮创建完成后弹出笔记编辑弹窗
+    // 当前实现是创建后用户点击高亮文字来编辑笔记
+  }, [onAddHighlight]);
+
+  const handleToolbarCopy = useCallback(() => {
+    const pending = pendingHighlightRef.current;
+    if (pending) {
+      navigator.clipboard.writeText(pending.text).catch(() => {});
+    }
+    pendingHighlightRef.current = null;
+    window.getSelection()?.removeAllRanges();
+  }, []);
+
+  const handleToolbarClose = useCallback(() => {
+    setToolbar(prev => ({ ...prev, visible: false }));
+  }, []);
+
+  // ---- 笔记弹窗操作回调 ----
+  const handlePopoverUpdate = useCallback((id: string, data: { color?: string; note?: string }) => {
+    onUpdateHighlight?.(id, data);
+  }, [onUpdateHighlight]);
+
+  const handlePopoverDelete = useCallback((id: string) => {
+    onDeleteHighlight?.(id);
+  }, [onDeleteHighlight]);
+
+  const handlePopoverClose = useCallback(() => {
+    setPopover(prev => ({ ...prev, visible: false }));
+  }, []);
+
   // ---- 键盘 ----
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -435,6 +691,53 @@ export default function EpubReaderView({
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, []);
+
+  // ---- 外部导航（侧边栏高亮点击跳转） ----
+  const navigateTo = useCallback((location: string) => {
+    // 尝试解析高亮位置
+    const hlAnchor = deserializeHighlightLoc(location);
+    if (hlAnchor && paginationRef.current.blockMaps.length > 0) {
+      // 将高亮的 startBlock/startOffset 映射为 ReadingAnchor
+      const readingAnchor: ReadingAnchor = {
+        chapterIndex: hlAnchor.chapterIndex,
+        blockIndex: hlAnchor.startBlockIndex,
+        charOffset: hlAnchor.startCharOffset,
+        textSnippet: hlAnchor.text?.slice(0, 30) ?? '',
+      };
+      const page = computePageForAnchor(readingAnchor, paginationRef.current.chapterPageRanges, paginationRef.current.blockMaps);
+      if (page >= 0 && page < paginationRef.current.totalPages) {
+        currentPageRef.current = page;
+        currentAnchorRef.current = readingAnchor;
+        userHasFlippedRef.current = true;
+        setCurrentPage(page);
+        pageStore.setBoth(page);
+        const pf = flipBookRef.current?.pageFlip();
+        if (pf) { try { pf.turnToPage(page); } catch { /* */ } }
+        return;
+      }
+    }
+    // fallback: 尝试解析为阅读锚点
+    const parsed = deserializeAnchor(location);
+    if (parsed.anchor && paginationRef.current.blockMaps.length > 0) {
+      const page = computePageForAnchor(parsed.anchor, paginationRef.current.chapterPageRanges, paginationRef.current.blockMaps);
+      if (page >= 0) {
+        currentPageRef.current = page;
+        currentAnchorRef.current = parsed.anchor;
+        userHasFlippedRef.current = true;
+        setCurrentPage(page);
+        pageStore.setBoth(page);
+        const pf = flipBookRef.current?.pageFlip();
+        if (pf) { try { pf.turnToPage(page); } catch { /* */ } }
+      }
+    }
+  }, [pageStore]);
+
+  // 注册导航函数给外部使用
+  const onRegisterNavigateRef = useRef(onRegisterNavigate);
+  useEffect(() => { onRegisterNavigateRef.current = onRegisterNavigate; }, [onRegisterNavigate]);
+  useEffect(() => {
+    onRegisterNavigateRef.current?.(navigateTo);
+  }, [navigateTo]);
 
   // ---- 就绪 ----
   const contentParsed = !isLoading && !error;
@@ -462,8 +765,9 @@ export default function EpubReaderView({
       chapterHtml={chapters[p.chapterIndex]?.html || ''} pageInChapter={p.pageInChapter}
       chapterPages={p.chapterPages} pageWidth={contentWidth} pageHeight={contentHeight}
       pageNumber={p.globalPageIndex + 1} totalPages={pagination.totalPages}
-      fontSize={fontSize} lineHeight={lineHeightVal} fontFamily={fontFamily} theme={theme} padding={pagePadding} />
-  )), [allPages, chapters, contentWidth, contentHeight, pagination.totalPages, fontSize, lineHeightVal, fontFamily, theme, pagePadding]);
+      fontSize={fontSize} lineHeight={lineHeightVal} fontFamily={fontFamily} theme={theme} padding={pagePadding}
+      highlights={highlightsByChapter[p.chapterIndex]} />
+  )), [allPages, chapters, contentWidth, contentHeight, pagination.totalPages, fontSize, lineHeightVal, fontFamily, theme, pagePadding, highlightsByChapter]);
 
   return (
     <div ref={containerRef} className={`book-container ${themeClass}`}>
@@ -501,7 +805,7 @@ export default function EpubReaderView({
       )}
 
       {allPages.length > 0 && containerSize.w > 0 && settingsKey && (
-        <div className="book-frame"
+        <div ref={bookFrameRef} className={`book-frame ${selectionMode ? 'hl-selection-active' : ''}`}
           style={{ position: 'relative', opacity: showBook ? 1 : 0, transition: 'opacity 0.3s ease-in' }}>
           {!isMobile && <div className="book-shadow" />}
           {!isMobile && <div className="page-stack-left" />}
@@ -523,6 +827,91 @@ export default function EpubReaderView({
           </PageStoreContext.Provider>
 
           {!isMobile && <div className="book-spine" />}
+
+          {/* 高亮工具栏 */}
+          {toolbar.visible && (
+            <HighlightToolbar
+              position={{ x: toolbar.x, y: toolbar.y }}
+              onHighlight={handleToolbarHighlight}
+              onNote={handleToolbarNote}
+              onCopy={handleToolbarCopy}
+              onClose={handleToolbarClose}
+            />
+          )}
+
+          {/* 笔记弹窗：编辑模式 */}
+          {popover.visible && !popover.readOnly && (
+            <NotePopover
+              position={{ x: popover.x, y: popover.y }}
+              highlightId={popover.highlightId}
+              text={popover.text}
+              color={popover.color}
+              note={popover.note}
+              onUpdate={handlePopoverUpdate}
+              onDelete={handlePopoverDelete}
+              onClose={handlePopoverClose}
+            />
+          )}
+
+          {/* 笔记弹窗：只读模式（非划线模式下点击高亮文字） */}
+          {popover.visible && popover.readOnly && (
+            <div
+              className="hl-note-viewer"
+              style={{
+                position: 'absolute', zIndex: 100,
+                left: popover.x, top: popover.y,
+                transform: 'translate(-50%, -100%) translateY(-12px)',
+              }}
+              onMouseDown={e => e.stopPropagation()}
+              onClick={e => e.stopPropagation()}
+            >
+              {/* 颜色标记条 */}
+              <div className="hl-nv-bar" style={{
+                background: popover.color === 'yellow' ? '#ffd84d' : popover.color === 'green' ? '#6cc96c' : popover.color === 'blue' ? '#5ca8ff' : popover.color === 'pink' ? '#ff7fa0' : '#a47aff',
+              }} />
+
+              {/* 引用文字 */}
+              <div className="hl-nv-quote">
+                &ldquo;{popover.text.length > 100 ? popover.text.slice(0, 100) + '…' : popover.text}&rdquo;
+              </div>
+
+              {/* 笔记内容 */}
+              {popover.note ? (
+                <div className="hl-nv-note">{popover.note}</div>
+              ) : (
+                <div className="hl-nv-empty">暂无笔记</div>
+              )}
+
+              {/* 底部操作 */}
+              <div className="hl-nv-footer">
+                <button className="hl-nv-edit" onClick={handleSwitchToEdit}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                  </svg>
+                  编辑
+                </button>
+                <button className="hl-nv-close" onClick={handlePopoverClose}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 划线模式切换按钮 */}
+          <button
+            className={`hl-mode-toggle ${selectionMode ? 'hl-mode-active' : ''}`}
+            onClick={(e) => { e.stopPropagation(); toggleSelectionMode(); }}
+            title={selectionMode ? '退出划线模式（可用键盘 ← → 翻页）' : '进入划线模式'}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill={selectionMode ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+            </svg>
+            <span className="hl-mode-label">{selectionMode ? '划线中' : '划线'}</span>
+          </button>
 
           {isFetchingChapters && showBook && (
             <div style={{

@@ -1,5 +1,6 @@
 import React, { useContext, useMemo, useCallback, useSyncExternalStore } from 'react';
 import { PageStoreContext } from './EpubReaderView';
+import { injectHighlightsIntoHtml, type HighlightData } from '@/lib/highlight-anchor';
 
 interface BookPageProps {
   pageIndex: number;
@@ -15,6 +16,7 @@ interface BookPageProps {
   fontFamily: string;
   theme: string;
   padding: number;            // 页面内边距（移动端更小）
+  highlights?: HighlightData[]; // 该章节的高亮列表
 }
 
 const THEME_MAP: Record<string, { pageNumColor: string }> = {
@@ -72,6 +74,7 @@ const BookPage = React.forwardRef<HTMLDivElement, BookPageProps>(
       fontFamily,
       theme,
       padding,
+      highlights,
     },
     ref,
   ) => {
@@ -95,7 +98,14 @@ const BookPage = React.forwardRef<HTMLDivElement, BookPageProps>(
     );
 
     // 只有 isNear 为 true 时才渲染真实内容
-    const activeHtml = isNear ? chapterHtml : '';
+    // 如果有高亮数据，注入 <mark> 标签
+    const activeHtml = useMemo(() => {
+      if (!isNear || !chapterHtml) return '';
+      if (highlights && highlights.length > 0) {
+        return injectHighlightsIntoHtml(chapterHtml, highlights);
+      }
+      return chapterHtml;
+    }, [isNear, chapterHtml, highlights]);
 
     const themeColors = THEME_MAP[theme] || THEME_MAP.light;
     const fontFamilyCss = FONT_MAP[fontFamily] || FONT_MAP.system;
@@ -236,5 +246,6 @@ export default React.memo(BookPage, (prev, next) => {
   if (prev.totalPages !== next.totalPages) return false;
   if (prev.pageInChapter !== next.pageInChapter) return false;
   if (prev.padding !== next.padding) return false;
+  if (prev.highlights !== next.highlights) return false;
   return true;
 });

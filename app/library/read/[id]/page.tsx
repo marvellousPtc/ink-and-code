@@ -52,7 +52,7 @@ export default function ReaderPage({ params }: ReaderPageProps) {
   const { saveSettings } = useSaveReadingSettings();
   const { saveProgress } = useSaveProgress();
   const { bookmarks, addBookmark, deleteBookmark, mutate: mutateBookmarks } = useBookmarks(id);
-  const { highlights, addHighlight, deleteHighlight, mutate: mutateHighlights } = useHighlights(id);
+  const { highlights, addHighlight, deleteHighlight, updateHighlight, mutate: mutateHighlights } = useHighlights(id);
 
   // ---- 首次加载保护 ----
   // 有缓存时立即渲染阅读器（不等 revalidation）。
@@ -313,15 +313,31 @@ export default function ReaderPage({ params }: ReaderPageProps) {
     if (showSidebar) setShowSidebar(null);
   }, [showSidebar, shouldAutoHide]);
 
+  // 导航函数 ref（由 EpubReaderView 注册，侧边栏高亮点击时调用）
+  const navigateToRef = useRef<((loc: string) => void) | null>(null);
+  const handleRegisterNavigate = useCallback((fn: (loc: string) => void) => {
+    navigateToRef.current = fn;
+  }, []);
+
   const handleAddBookmark = useCallback(async (location: string, title?: string) => {
     await addBookmark({ bookId: id, location, title });
     mutateBookmarks();
   }, [id, addBookmark, mutateBookmarks]);
 
-  const handleAddHighlight = useCallback(async (text: string, location: string, color?: string) => {
-    await addHighlight({ bookId: id, text, location, color });
+  const handleAddHighlight = useCallback(async (text: string, location: string, color?: string, note?: string) => {
+    await addHighlight({ bookId: id, text, location, color, note });
     mutateHighlights();
   }, [id, addHighlight, mutateHighlights]);
+
+  const handleUpdateHighlight = useCallback(async (hlId: string, data: { color?: string; note?: string }) => {
+    await updateHighlight({ id: hlId, ...data });
+    mutateHighlights();
+  }, [updateHighlight, mutateHighlights]);
+
+  const handleDeleteHighlight = useCallback(async (hlId: string) => {
+    await deleteHighlight({ id: hlId });
+    mutateHighlights();
+  }, [deleteHighlight, mutateHighlights]);
 
   // ---- 设置管理 ----
   // 使用 local state 作为主控源，解耦 SWR 依赖。
@@ -446,10 +462,14 @@ export default function ReaderPage({ params }: ReaderPageProps) {
               bookId={id}
               initialLocation={book!.progress?.currentLocation || undefined}
               settings={readerSettings}
+              highlights={highlights}
               onProgressUpdate={handleProgressUpdate}
               onAddBookmark={handleAddBookmark}
               onAddHighlight={handleAddHighlight}
+              onUpdateHighlight={handleUpdateHighlight}
+              onDeleteHighlight={handleDeleteHighlight}
               onReady={handleReaderReady}
+              onRegisterNavigate={handleRegisterNavigate}
             />
           )}
           {showContent && format === 'pdf' && (
@@ -602,36 +622,104 @@ export default function ReaderPage({ params }: ReaderPageProps) {
               )}
 
               {showSidebar === 'highlights' && (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {highlights.length === 0 ? (
-                    <p className="text-sm text-center py-8 opacity-50">暂无划线笔记</p>
+                    <div className="text-center py-10">
+                      <Highlighter className="w-8 h-8 mx-auto mb-3 opacity-20" />
+                      <p className="text-sm opacity-50 mb-1">暂无划线笔记</p>
+                      <p className="text-[11px] opacity-30">选中文字后可添加高亮和笔记</p>
+                    </div>
                   ) : (
-                    highlights.map((hl) => (
-                      <div key={hl.id} className="p-3 rounded-lg bg-black/5 text-sm">
-                        <div className="flex items-start justify-between gap-2">
+                    <>
+                      {/* 统计 */}
+                      <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1 ${
+                        readerTheme === 'dark' ? 'bg-white/4' :
+                        readerTheme === 'sepia' ? 'bg-[#c9b894]/10' :
+                        'bg-black/3'
+                      }`}>
+                        <div className="flex items-center gap-4 text-[12px]">
+                          <div className="flex items-center gap-1.5">
+                            <Highlighter className="w-3.5 h-3.5 opacity-40" />
+                            <span style={{ opacity: 0.55 }}>
+                              <strong className="font-semibold" style={{ opacity: 0.85 }}>{highlights.length}</strong> 条划线
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-40">
+                              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                            </svg>
+                            <span style={{ opacity: 0.55 }}>
+                              <strong className="font-semibold" style={{ opacity: 0.85 }}>{highlights.filter(h => h.note).length}</strong> 条笔记
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 高亮列表 */}
+                      {highlights.map((hl) => {
+                        const colorHex =
+                          hl.color === 'yellow' ? '#eab308' :
+                          hl.color === 'green' ? '#22c55e' :
+                          hl.color === 'blue' ? '#3b82f6' :
+                          hl.color === 'pink' ? '#ec4899' : '#a855f7';
+                        return (
                           <div
-                            className="flex-1 border-l-2 pl-2 text-xs italic opacity-80"
-                            style={{
-                              borderColor:
-                                hl.color === 'yellow' ? '#eab308' :
-                                hl.color === 'green' ? '#22c55e' :
-                                hl.color === 'blue' ? '#3b82f6' :
-                                hl.color === 'pink' ? '#ec4899' :
-                                '#a855f7',
+                            key={hl.id}
+                            className={`group rounded-xl transition-all cursor-pointer ${
+                              readerTheme === 'dark' ? 'bg-white/4 hover:bg-white/[0.07]' :
+                              readerTheme === 'sepia' ? 'bg-[#c9b894]/8 hover:bg-[#c9b894]/[0.14]' :
+                              'bg-black/3 hover:bg-black/6'
+                            }`}
+                            onClick={() => {
+                              navigateToRef.current?.(hl.location);
+                              setShowSidebar(null);
                             }}
                           >
-                            {hl.text}
+                            <div className="px-3 pt-3 pb-2">
+                              {/* 高亮文字 */}
+                              <div className="flex items-start gap-2">
+                                <div
+                                  className="w-[3px] shrink-0 rounded-full self-stretch mt-0.5"
+                                  style={{ background: colorHex }}
+                                />
+                                <p className="flex-1 text-[13px] leading-relaxed line-clamp-3" style={{ opacity: 0.75 }}>
+                                  {hl.text}
+                                </p>
+                              </div>
+
+                              {/* 笔记 */}
+                              {hl.note && (
+                                <div className={`mt-2 ml-[11px] px-2.5 py-1.5 rounded-lg text-[12px] leading-relaxed ${
+                                  readerTheme === 'dark' ? 'bg-white/4' :
+                                  readerTheme === 'sepia' ? 'bg-[#c9b894]/8' :
+                                  'bg-black/3'
+                                }`} style={{ opacity: 0.6 }}>
+                                  💬 {hl.note}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* 底部：时间 + 操作 */}
+                            <div className="flex items-center justify-between px-3 pb-2">
+                              <span className="text-[10px] opacity-25">
+                                {new Date(hl.createdAt).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
+                              </span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  deleteHighlight({ id: hl.id });
+                                  mutateHighlights();
+                                }}
+                                className="opacity-0 group-hover:opacity-40 hover:opacity-70! p-1 rounded transition-opacity"
+                                title="删除"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
                           </div>
-                          <button
-                            onClick={() => { deleteHighlight({ id: hl.id }); mutateHighlights(); }}
-                            className="text-red-400 hover:text-red-500 p-0.5 shrink-0"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </div>
-                        {hl.note && <p className="text-xs opacity-60 mt-1.5">{hl.note}</p>}
-                      </div>
-                    ))
+                        );
+                      })}
+                    </>
                   )}
                 </div>
               )}
