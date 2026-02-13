@@ -238,9 +238,12 @@ export default function ReaderPage({ params }: ReaderPageProps) {
    
   }, []);
 
-  // 恢复进度
+  // 阅读器是否已发送过本地进度更新（一旦为 true，不再接受服务端覆盖）
+  const hasLocalProgressRef = useRef(false);
+
+  // 恢复进度（仅在阅读器尚未产生本地进度时接受服务端数据）
   useEffect(() => {
-    if (book?.progress) {
+    if (book?.progress && !hasLocalProgressRef.current) {
       percentageRef.current = book.progress.percentage;
       currentLocationRef.current = book.progress.currentLocation;
       setDisplayPercentage(book.progress.percentage);
@@ -254,6 +257,7 @@ export default function ReaderPage({ params }: ReaderPageProps) {
 
   const handleProgressUpdate = useCallback((pct: number, loc?: string, extra?: { pageNumber?: number; settingsFingerprint?: string }) => {
     // 存入 ref（零开销，不触发任何重渲染）
+    hasLocalProgressRef.current = true;
     percentageRef.current = pct;
     if (loc) currentLocationRef.current = loc;
     if (extra) progressExtraRef.current = extra;
