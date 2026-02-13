@@ -13,6 +13,8 @@ const COLORS = [
 interface HighlightToolbarProps {
   /** 工具栏位置（相对于阅读器容器） */
   position: { x: number; y: number };
+  /** true = 工具栏在文字下方（顶部空间不足时） */
+  flipDown?: boolean;
   /** 用户点击颜色 → 创建高亮 */
   onHighlight: (color: string) => void;
   /** 用户点击笔记按钮 → 创建高亮 + 打开笔记弹窗 */
@@ -24,7 +26,7 @@ interface HighlightToolbarProps {
 }
 
 export default function HighlightToolbar({
-  position, onHighlight, onNote, onCopy, onClose,
+  position, flipDown, onHighlight, onNote, onCopy, onClose,
 }: HighlightToolbarProps) {
   const handleColor = useCallback((color: string) => {
     onHighlight(color);
@@ -43,11 +45,13 @@ export default function HighlightToolbar({
 
   return (
     <div
-      className="hl-toolbar"
+      className={`hl-toolbar ${flipDown ? 'hl-toolbar-flip' : ''}`}
       style={{
         left: position.x,
         top: position.y,
-        transform: 'translate(-50%, -100%) translateY(-10px)',
+        transform: flipDown
+          ? 'translate(-50%, 0%) translateY(10px)'
+          : 'translate(-50%, -100%) translateY(-10px)',
       }}
       onMouseDown={e => e.stopPropagation()}
       onClick={e => e.stopPropagation()}

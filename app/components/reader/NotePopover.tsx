@@ -13,6 +13,8 @@ const COLORS = [
 interface NotePopoverProps {
   /** 弹窗位置（相对于阅读器容器） */
   position: { x: number; y: number };
+  /** true = 弹窗在文字下方（顶部空间不足时） */
+  flipDown?: boolean;
   /** 高亮 ID */
   highlightId: string;
   /** 高亮文字 */
@@ -30,7 +32,7 @@ interface NotePopoverProps {
 }
 
 export default function NotePopover({
-  position, highlightId, text, color, note,
+  position, flipDown, highlightId, text, color, note,
   onUpdate, onDelete, onClose,
 }: NotePopoverProps) {
   const [noteText, setNoteText] = useState(note ?? '');
@@ -82,7 +84,9 @@ export default function NotePopover({
       style={{
         left: position.x,
         top: position.y,
-        transform: 'translate(-50%, -100%) translateY(-10px)',
+        transform: flipDown
+          ? 'translate(-50%, 0%) translateY(10px)'
+          : 'translate(-50%, -100%) translateY(-10px)',
       }}
       onMouseDown={e => e.stopPropagation()}
       onClick={e => e.stopPropagation()}

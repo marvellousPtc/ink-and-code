@@ -467,10 +467,11 @@ export default function EpubReaderView({
     visible: boolean;
     x: number;
     y: number;
+    flipDown: boolean; // true = 弹窗在文字下方（顶部空间不足时）
     chapterIndex: number;
     text: string;
   }
-  const [toolbar, setToolbar] = useState<ToolbarState>({ visible: false, x: 0, y: 0, chapterIndex: 0, text: '' });
+  const [toolbar, setToolbar] = useState<ToolbarState>({ visible: false, x: 0, y: 0, flipDown: false, chapterIndex: 0, text: '' });
   // 保存选区锚点，以便在工具栏操作时使用
   const pendingHighlightRef = useRef<{ chapterIndex: number; location: string; text: string } | null>(null);
 
@@ -480,12 +481,13 @@ export default function EpubReaderView({
     readOnly: boolean;
     x: number;
     y: number;
+    flipDown: boolean; // true = 弹窗在文字下方（顶部空间不足时）
     highlightId: string;
     text: string;
     color: string;
     note: string | null;
   }
-  const [popover, setPopover] = useState<PopoverState>({ visible: false, readOnly: false, x: 0, y: 0, highlightId: '', text: '', color: 'yellow', note: null });
+  const [popover, setPopover] = useState<PopoverState>({ visible: false, readOnly: false, x: 0, y: 0, flipDown: false, highlightId: '', text: '', color: 'yellow', note: null });
 
   // ---- 划线模式（禁用翻页手势，启用文字选择） ----
   const [selectionMode, setSelectionMode] = useState(false);
@@ -554,12 +556,19 @@ export default function EpubReaderView({
           const rect = markEl.getBoundingClientRect();
           const frameRect = bookFrameRef.current?.getBoundingClientRect();
           if (frameRect) {
-            setToolbar({ visible: false, x: 0, y: 0, chapterIndex: 0, text: '' });
+            // 判断弹窗方向：顶部空间不足时翻转到下方
+            // 编辑弹窗约 280px 高，只读弹窗约 160px 高
+            const isReadOnly = !selectionModeRef.current;
+            const spaceAbove = rect.top - frameRect.top;
+            const threshold = isReadOnly ? 160 : 280;
+            const flipDown = spaceAbove < threshold;
+            setToolbar({ visible: false, x: 0, y: 0, flipDown: false, chapterIndex: 0, text: '' });
             setPopover({
               visible: true,
-              readOnly: !selectionModeRef.current, // 非划线模式 → 只读
+              readOnly: isReadOnly,
               x: rect.left + rect.width / 2 - frameRect.left,
-              y: rect.top - frameRect.top,
+              y: flipDown ? (rect.bottom - frameRect.top) : (rect.top - frameRect.top),
+              flipDown,
               highlightId: hl.id,
               text: hl.text,
               color: hl.color,
@@ -616,10 +625,13 @@ export default function EpubReaderView({
     const rangeRect = range.getBoundingClientRect();
     const frameRect = bookFrameRef.current?.getBoundingClientRect();
     if (frameRect) {
+      const spaceAbove = rangeRect.top - frameRect.top;
+      const flipDown = spaceAbove < 50; // 工具栏约 40px 高
       setToolbar({
         visible: true,
         x: rangeRect.left + rangeRect.width / 2 - frameRect.left,
-        y: rangeRect.top - frameRect.top,
+        y: flipDown ? (rangeRect.bottom - frameRect.top) : (rangeRect.top - frameRect.top),
+        flipDown,
         chapterIndex: info.chapterIndex,
         text,
       });
@@ -832,6 +844,7 @@ export default function EpubReaderView({
           {toolbar.visible && (
             <HighlightToolbar
               position={{ x: toolbar.x, y: toolbar.y }}
+              flipDown={toolbar.flipDown}
               onHighlight={handleToolbarHighlight}
               onNote={handleToolbarNote}
               onCopy={handleToolbarCopy}
@@ -843,6 +856,7 @@ export default function EpubReaderView({
           {popover.visible && !popover.readOnly && (
             <NotePopover
               position={{ x: popover.x, y: popover.y }}
+              flipDown={popover.flipDown}
               highlightId={popover.highlightId}
               text={popover.text}
               color={popover.color}
@@ -860,7 +874,9 @@ export default function EpubReaderView({
               style={{
                 position: 'absolute', zIndex: 100,
                 left: popover.x, top: popover.y,
-                transform: 'translate(-50%, -100%) translateY(-12px)',
+                transform: popover.flipDown
+                  ? 'translate(-50%, 0%) translateY(12px)'
+                  : 'translate(-50%, -100%) translateY(-12px)',
               }}
               onMouseDown={e => e.stopPropagation()}
               onClick={e => e.stopPropagation()}
