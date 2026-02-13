@@ -217,8 +217,12 @@ export default function EpubReaderView({
   const flipRafRef = useRef(0);
   // 当前阅读位置的锚点（设备/排版无关，用于字体变更后精确重定位）
   const currentAnchorRef = useRef<ReadingAnchor | null>(null);
-  // 用户是否已翻页（一旦翻页则不再自动修正位置，避免打断阅读）
+  // 用户是否已主动翻页（一旦翻页则不再自动修正位置，避免打断阅读）
   const userHasFlippedRef = useRef(false);
+  // flipbook 组件是否已就绪（初始化/重挂载后需要等 300ms 淡入才算就绪）
+  // 在就绪前忽略 onFlip 的副作用（锚点更新、进度保存），
+  // 因为 flipbook 初始化时可能发射伪翻页事件（page=0 等）。
+  const flipReadyRef = useRef(false);
 
   const onProgressUpdateRef = useRef(onProgressUpdate);
   useEffect(() => { onProgressUpdateRef.current = onProgressUpdate; }, [onProgressUpdate]);
@@ -265,6 +269,7 @@ export default function EpubReaderView({
       currentAnchorRef.current = parsedLocation.anchor
         || computeAnchorForPage(startPage, pagination.chapterPageRanges, pagination.blockMaps);
       console.log('[Reader] Init → page:', startPage, 'anchor:', parsedLocation.anchor, 'totalPages:', pagination.totalPages, 'blockMapsCount:', pagination.blockMaps.length);
+      flipReadyRef.current = false; // flipbook 即将(重)挂载，标记为未就绪
       setCurrentPage(startPage);
       pageStore.setBoth(startPage);
       setSettingsKey(`init_${pagination.totalPages}_${pageDimensions.pageW}_${pageDimensions.pageH}`);
@@ -287,6 +292,7 @@ export default function EpubReaderView({
       // anchor → page → anchor 转换有损（pageToAnchor 返回页首第一个块），
       // 且渐进加载期间 blockMaps 不完整时会导致锚点漂移到错误章节。
       // 只有用户真正翻页时才更新 currentAnchorRef。
+      flipReadyRef.current = false; // flipbook 即将重挂载
       setCurrentPage(gp);
       pageStore.setBoth(gp);
       setSettingsKey(`settings_${settingsFingerprint}`);
@@ -305,39 +311,40 @@ export default function EpubReaderView({
         || computeAnchorForPage(startPage, pagination.chapterPageRanges, pagination.blockMaps);
       setCurrentPage(startPage);
       pageStore.setBoth(startPage);
-    } else if (pagination.totalPages !== prevTotalRef.current) {
+    } else if (pagination.totalPages !== prevTotalRef.current || startPage !== currentPageRef.current) {
+      // 渐进加载：章节继续加载 → 分页重新计算 → chapterPageRanges/totalPages 变化
       prevSettingsFpRef.current = settingsFingerprint;
       prevTotalRef.current = pagination.totalPages;
+
+      // 如果用户还没翻页（还在初始打开阶段），自动修正到更新后的正确页码。
+      // 用 turnToPage 直接翻页（不 remount flipbook，避免 onFlip 竞态条件）。
+      if (!userHasFlippedRef.current && startPage > 0 && startPage !== currentPageRef.current) {
+        console.log('[Reader] AutoCorrect → old:', currentPageRef.current, '→ new:', startPage,
+          'totalPages:', pagination.totalPages, 'blockMaps:', pagination.blockMaps.length);
+        currentPageRef.current = startPage;
+        currentAnchorRef.current = parsedLocation.anchor
+          || computeAnchorForPage(startPage, pagination.chapterPageRanges, pagination.blockMaps);
+        setCurrentPage(startPage);
+        pageStore.setBoth(startPage);
+        // 直接命令 flipbook 翻到正确页码（不 remount，不触发 onFlip 竞态）
+        const pf = flipBookRef.current?.pageFlip();
+        if (pf) {
+          try { pf.turnToPage(startPage); } catch { /* ignore if flipbook not ready */ }
+        }
+      }
     } else {
       prevSettingsFpRef.current = settingsFingerprint;
-    }
-
-    // ---- 渐进加载自动修正 ----
-    // 章节渐进加载 → 分页重新计算 → chapterPageRanges 变化 → startPage 重新计算。
-    // 如果用户还没翻页（初始打开阶段），自动修正到更新后的正确页码。
-    // 一旦用户开始翻页则停止修正，避免打断阅读。
-    if (
-      initializedRef.current &&
-      !userHasFlippedRef.current &&
-      !pendingSettingsNavRef.current &&
-      startPage > 0 &&
-      startPage !== currentPageRef.current
-    ) {
-      console.log('[Reader] AutoCorrect → old:', currentPageRef.current, '→ new:', startPage, 'totalPages:', pagination.totalPages, 'blockMaps:', pagination.blockMaps.length);
-      currentPageRef.current = startPage;
-      currentAnchorRef.current = parsedLocation.anchor
-        || computeAnchorForPage(startPage, pagination.chapterPageRanges, pagination.blockMaps);
-      setCurrentPage(startPage);
-      pageStore.setBoth(startPage);
-      // 用新 settingsKey 让 flipbook 重新挂载到正确页码（turnToPage 不如 remount 可靠）
-      setSettingsKey(`autocorrect_${pagination.totalPages}_${startPage}`);
     }
   }, [pagination.isReady, isLoading, pagination.totalPages, pagination.blockMaps, pagination.chapterPageRanges, startPage, parsedLocation, initialLocation, pageDimensions.pageW, pageDimensions.pageH, fontSize, lineHeightVal, fontFamily, pageStore, settingsFingerprint, pageToCharOffset]);
 
   // ---- 淡入 ----
   useEffect(() => {
     if (!settingsKey) return;
-    const t = setTimeout(() => { setShowBook(true); onReadyRef.current?.(); }, 300);
+    const t = setTimeout(() => {
+      setShowBook(true);
+      flipReadyRef.current = true; // flipbook 淡入完成，可以处理翻页事件了
+      onReadyRef.current?.();
+    }, 300);
     return () => clearTimeout(t);
   }, [settingsKey]);
 
@@ -357,16 +364,27 @@ export default function EpubReaderView({
     (e: any) => {
       const page = e.data as number;
       const prevPage = currentPageRef.current;
-      currentPageRef.current = page;
+
+      // flipbook 未就绪时（初始化/重挂载阶段），不更新 currentPageRef——
+      // 此时的 onFlip 可能是 flipbook 内部初始化触发的伪事件（如 page=0），
+      // 会污染 currentPageRef 导致后续自动修正失效。
+      if (flipReadyRef.current) {
+        currentPageRef.current = page;
+      }
 
       // 所有副作用延迟到下一帧，不在翻页动画帧中触发重渲染或计算
       if (flipRafRef.current) cancelAnimationFrame(flipRafRef.current);
       flipRafRef.current = requestAnimationFrame(() => {
-        pageStore.setBoth(page);
+        if (flipReadyRef.current) {
+          pageStore.setBoth(page);
+        }
 
         // 页码未变（如组件 remount 时的初始回调），跳过锚点更新和进度保存，
         // 避免用不完整的 blockMaps 反算出错误锚点覆盖已保存的精确位置。
         if (page === prevPage) return;
+
+        // flipbook 未就绪 → 跳过所有副作用
+        if (!flipReadyRef.current) return;
 
         // 标记用户已主动翻页 → 停止渐进加载自动修正位置
         userHasFlippedRef.current = true;
