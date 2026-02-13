@@ -3,6 +3,7 @@ import { requireAuth, success, ApiError } from '@/lib/api-response';
 
 /**
  * GET /api/library/highlights?bookId=xxx
+ * GET /api/library/highlights?all=1  (获取所有书籍的划线笔记，含书籍信息)
  * 获取划线笔记列表
  */
 export async function GET(request: Request) {
@@ -12,6 +13,21 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const bookId = searchParams.get('bookId');
+    const all = searchParams.get('all');
+
+    // 获取所有书籍的高亮笔记（笔记管理页面用）
+    if (all === '1') {
+      const highlights = await prisma.highlight.findMany({
+        where: { userId: userId! },
+        include: {
+          book: {
+            select: { id: true, title: true, author: true, cover: true, format: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      return success(highlights);
+    }
 
     if (!bookId) {
       return ApiError.badRequest('缺少 bookId');

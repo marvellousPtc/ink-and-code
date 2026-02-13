@@ -692,6 +692,26 @@ export default function EpubReaderView({
     setPopover(prev => ({ ...prev, visible: false }));
   }, []);
 
+  // ---- 修复 react-pageflip-enhanced 内部 bug ----
+  // 库内部 getBottomPage/getFlippingPage 可能返回 undefined（索引越界），
+  // 但 setRightPage 等方法只检查 !== null，导致对 undefined 调用 .setOrientation() 崩溃。
+  // 在 Render 对象上包裹这些方法，将 undefined 转为 null。
+  useEffect(() => {
+    const pf = flipBookRef.current?.pageFlip();
+    if (!pf) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const render = (pf as any).render;
+    if (!render) return;
+    const methods = ['setRightPage', 'setLeftPage', 'setBottomPage', 'setFlippingPage'] as const;
+    for (const m of methods) {
+      if (typeof render[m] === 'function' && !render[`__patched_${m}`]) {
+        const original = render[m].bind(render);
+        render[m] = (page: unknown) => original(page ?? null);
+        render[`__patched_${m}`] = true;
+      }
+    }
+  }, [settingsKey]);
+
   // ---- 键盘 ----
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

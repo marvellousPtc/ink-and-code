@@ -533,3 +533,48 @@ export function useHighlights(bookId: string | null) {
     updateHighlight,
   };
 }
+
+/**
+ * 全部书籍的高亮笔记（笔记管理页面用）
+ */
+export interface AllHighlightItem extends HighlightItem {
+  book: {
+    id: string;
+    title: string;
+    author: string | null;
+    cover: string | null;
+    format: string;
+  };
+}
+
+export function useAllHighlights() {
+  const { data, error, isLoading, mutate } = useSWR<AllHighlightItem[]>(
+    '/api/library/highlights?all=1',
+    fetcher
+  );
+
+  const { trigger: updateHighlight } = useSWRMutation(
+    '/api/library/highlights',
+    async (url: string, { arg }: { arg: { id: string; color?: string; note?: string } }) => {
+      const res = await post(url, { action: 'update', ...arg });
+      return res.data;
+    }
+  );
+
+  const { trigger: deleteHighlight } = useSWRMutation(
+    '/api/library/highlights',
+    async (url: string, { arg }: { arg: { id: string } }) => {
+      const res = await post(url, { action: 'delete', ...arg });
+      return res.data;
+    }
+  );
+
+  return {
+    highlights: data || [],
+    isLoading,
+    error,
+    mutate,
+    updateHighlight,
+    deleteHighlight,
+  };
+}

@@ -14,7 +14,7 @@ import { useRouter } from 'next/navigation';
 import {
   BookOpen, Upload, Search, X, Trash2, Clock, Library,
   Grid3X3, List, SortAsc, FileText, Loader2, AlertTriangle,
-  BookMarked, Info, CheckCircle2, XCircle, ImageIcon
+  BookMarked, Info, CheckCircle2, XCircle, ImageIcon, Highlighter
 } from 'lucide-react';
 import { useBookList, useUploadBook, useDeleteBook, useLibraryRole } from '@/lib/hooks/use-library';
 
@@ -518,6 +518,15 @@ export default function LibraryPage() {
                   <span className="text-xs font-bold text-foreground/70">累计 {formatReadTime(totalReadTime)}</span>
                 </div>
               )}
+
+              {/* 笔记管理入口 */}
+              <button
+                onClick={() => router.push('/library/notes')}
+                className="flex items-center gap-2 px-3.5 py-2 bg-card/60 border border-card-border/40 rounded-xl hover:bg-primary/8 hover:border-primary/20 hover:text-primary transition-all cursor-pointer group"
+              >
+                <Highlighter className="w-3.5 h-3.5 text-purple-500/60 group-hover:text-primary transition-colors" />
+                <span className="text-xs font-bold text-foreground/70 group-hover:text-primary transition-colors">笔记管理</span>
+              </button>
             </div>
           )}
         </div>
