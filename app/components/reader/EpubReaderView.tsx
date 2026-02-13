@@ -853,6 +853,7 @@ export default function EpubReaderView({
               drawShadow={false} maxShadowOpacity={0}
               showPageCorners={false} disableFlipByClick={isMobile} clickEventForward={!isMobile}
               swipeDistance={15} startPage={currentPage} startZIndex={2} autoSize={false}
+              renderOnlyPageLengthChange={true}
               onFlip={handleFlip} style={{}}>
               {stableChildren}
             </HTMLFlipBook>
