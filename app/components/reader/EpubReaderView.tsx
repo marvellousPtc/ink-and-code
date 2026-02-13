@@ -225,6 +225,8 @@ export default function EpubReaderView({
 
   const prevSettingsFpRef = useRef('');
   const prevInitialLocationRef = useRef<string | undefined>(undefined);
+  // 设置变更后等待分页重新测量再导航（防止用旧 blockMaps 解析锚点到错误页码）
+  const pendingSettingsNavRef = useRef(false);
 
   // ---- 初始化 & 变更 ----
   useEffect(() => {
@@ -239,9 +241,20 @@ export default function EpubReaderView({
     const isProgressRestore = initializedRef.current && initialLocation !== prevInitialLocationRef.current && startPage > 0;
     const isLateProgressApply = initializedRef.current && startPage > 0 && currentPageRef.current === 0;
 
-    prevSettingsFpRef.current = settingsFingerprint;
+    // 检测到设置变更 → 标记等待分页重新测量，先不导航
+    // 原因：此时 pagination.blockMaps 仍是旧设置的数据
+    // （useBookPagination 的 setResult(isReady:false) 还在 React 队列中），
+    // 用旧 blockMaps 解析锚点会得到错误页码。
+    if (isSettingsChange) {
+      prevSettingsFpRef.current = settingsFingerprint;
+      pendingSettingsNavRef.current = true;
+      /* eslint-disable-next-line react-hooks/set-state-in-effect */
+      setShowBook(false);
+      return;
+    }
 
     if (!initializedRef.current) {
+      prevSettingsFpRef.current = settingsFingerprint;
       initializedRef.current = true;
       prevInitialLocationRef.current = initialLocation;
       prevTotalRef.current = pagination.totalPages;
@@ -249,11 +262,14 @@ export default function EpubReaderView({
       // 初始化锚点
       currentAnchorRef.current = parsedLocation.anchor
         || computeAnchorForPage(startPage, pagination.chapterPageRanges, pagination.blockMaps);
-      /* eslint-disable-next-line react-hooks/set-state-in-effect */
       setCurrentPage(startPage);
       pageStore.setBoth(startPage);
       setSettingsKey(`init_${pagination.totalPages}_${pageDimensions.pageW}_${pageDimensions.pageH}`);
-    } else if (isSettingsChange) {
+    } else if (pendingSettingsNavRef.current) {
+      // 分页已用新设置重新测量完成 → 现在可以安全导航
+      pendingSettingsNavRef.current = false;
+      prevTotalRef.current = pagination.totalPages;
+
       // 字体/排版变更 → 用锚点在新分页中精确定位（锚点与排版无关）
       const anchor = currentAnchorRef.current;
       if (anchor && pagination.blockMaps.length > 0) {
@@ -263,7 +279,6 @@ export default function EpubReaderView({
         const ratio = currentPageRef.current / Math.max(1, prevTotalRef.current - 1);
         currentPageRef.current = Math.min(Math.round(ratio * (pagination.totalPages - 1)), pagination.totalPages - 1);
       }
-      prevTotalRef.current = pagination.totalPages;
       const gp = currentPageRef.current;
       // 不从页码反算锚点 — 锚点是基于内容位置的，与排版设置无关。
       // anchor → page → anchor 转换有损（pageToAnchor 返回页首第一个块），
@@ -272,7 +287,6 @@ export default function EpubReaderView({
       setCurrentPage(gp);
       pageStore.setBoth(gp);
       setSettingsKey(`settings_${settingsFingerprint}`);
-      setShowBook(false);
       if (pagination.totalPages > 0 && currentAnchorRef.current) {
         const pct = Math.round((gp / Math.max(1, pagination.totalPages - 1)) * 100);
         const charOff = pageToCharOffset(gp);
@@ -280,6 +294,7 @@ export default function EpubReaderView({
         onProgressUpdateRef.current?.(pct, loc, { pageNumber: gp, settingsFingerprint });
       }
     } else if (isProgressRestore || isLateProgressApply) {
+      prevSettingsFpRef.current = settingsFingerprint;
       if (isProgressRestore) prevInitialLocationRef.current = initialLocation;
       prevTotalRef.current = pagination.totalPages;
       currentPageRef.current = startPage;
@@ -288,7 +303,10 @@ export default function EpubReaderView({
       setCurrentPage(startPage);
       pageStore.setBoth(startPage);
     } else if (pagination.totalPages !== prevTotalRef.current) {
+      prevSettingsFpRef.current = settingsFingerprint;
       prevTotalRef.current = pagination.totalPages;
+    } else {
+      prevSettingsFpRef.current = settingsFingerprint;
     }
   }, [pagination.isReady, isLoading, pagination.totalPages, pagination.blockMaps, pagination.chapterPageRanges, startPage, parsedLocation, initialLocation, pageDimensions.pageW, pageDimensions.pageH, fontSize, lineHeightVal, fontFamily, pageStore, settingsFingerprint, pageToCharOffset]);
 
