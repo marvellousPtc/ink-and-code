@@ -101,6 +101,10 @@ model SiteConfig {
   ossDir             String?  @map("oss_dir")               // 存储目录，如 blog/images/
   ossDomain          String?  @map("oss_domain")            // 自定义域名（可选）
   
+  // 存储方式配置
+  storageType        String?  @map("storage_type")          // oss | local
+  localStoragePath   String?  @map("local_storage_path")    // 本地存储路径（相对 public）
+  
   // 默认图床使用统计
   defaultOssUsedBytes  BigInt   @default(0) @map("default_oss_used_bytes")  // 已使用字节数
   defaultOssUsedCount  Int      @default(0) @map("default_oss_used_count")  // 已上传图片数
