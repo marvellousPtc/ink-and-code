@@ -522,10 +522,10 @@ export default function LibraryPage() {
               {/* 笔记管理入口 */}
               <button
                 onClick={() => router.push('/library/notes')}
-                className="flex items-center gap-2 px-3.5 py-2 bg-card/60 border border-card-border/40 rounded-xl hover:bg-primary/8 hover:border-primary/20 hover:text-primary transition-all cursor-pointer group"
+                className="flex items-center gap-2 px-4 py-2 bg-linear-to-r from-purple-500 to-indigo-500 text-white rounded-xl shadow-md shadow-purple-500/20 hover:shadow-lg hover:shadow-purple-500/30 hover:from-purple-600 hover:to-indigo-600 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer group"
               >
-                <Highlighter className="w-3.5 h-3.5 text-purple-500/60 group-hover:text-primary transition-colors" />
-                <span className="text-xs font-bold text-foreground/70 group-hover:text-primary transition-colors">笔记管理</span>
+                <Highlighter className="w-3.5 h-3.5 text-white/90" />
+                <span className="text-xs font-bold text-white">笔记管理</span>
               </button>
             </div>
           )}
