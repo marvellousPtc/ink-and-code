@@ -2,12 +2,20 @@ import { auth, signIn } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import { Github } from "lucide-react"
 
-export default async function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ callbackUrl?: string }>
+}) {
   const session = await auth()
+  const { callbackUrl } = await searchParams
   
-  // 如果已登录，重定向到后台
+  // 允许的回调路径（防止 open redirect）
+  const safeCallbackUrl = callbackUrl?.startsWith('/') ? callbackUrl : '/admin'
+  
+  // 如果已登录，重定向到目标页
   if (session?.user) {
-    redirect("/admin")
+    redirect(safeCallbackUrl)
   }
 
   return (
@@ -31,7 +39,9 @@ export default async function LoginPage() {
               <form
                 action={async () => {
                   "use server"
-                  await signIn("github", { redirectTo: "/admin" })
+                  const { callbackUrl: cb } = await searchParams
+                  const target = cb?.startsWith('/') ? cb : '/admin'
+                  await signIn("github", { redirectTo: target })
                 }}
               >
                 <button
@@ -47,7 +57,9 @@ export default async function LoginPage() {
               {/* <form
                 action={async () => {
                   "use server"
-                  await signIn("google", { redirectTo: "/admin" })
+                  const { callbackUrl: cb } = await searchParams
+                  const target = cb?.startsWith('/') ? cb : '/admin'
+                  await signIn("google", { redirectTo: target })
                 }}
               >
                 <button
