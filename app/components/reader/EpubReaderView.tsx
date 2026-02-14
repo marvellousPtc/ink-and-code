@@ -58,6 +58,15 @@ export interface PageStoreType {
 
 export const PageStoreContext = createContext<PageStoreType | null>(null);
 
+// ---- 高亮数据外部存储（BookPage 子组件订阅，避免 props 变化触发库重建页面集合） ----
+export interface HighlightStoreType {
+  subscribe: (cb: () => void) => () => void;
+  getHighlights: (chapterIndex: number) => HighlightData[] | undefined;
+  setHighlightsByChapter: (map: Record<number, HighlightData[]>) => void;
+}
+
+export const HighlightStoreContext = createContext<HighlightStoreType | null>(null);
+
 function createPageStore(): PageStoreType {
   let currentPage = 0;
   let initialPage = 0;
@@ -78,6 +87,17 @@ function createPageStore(): PageStoreType {
     },
     getLazyWindow: () => lazyWindow,
     setLazyWindow: (w: number) => { if (lazyWindow !== w) { lazyWindow = w; notify(); } },
+  };
+}
+
+function createHighlightStore(): HighlightStoreType {
+  let data: Record<number, HighlightData[]> = {};
+  const listeners = new Set<() => void>();
+  const notify = () => listeners.forEach(l => l());
+  return {
+    subscribe: (cb: () => void) => { listeners.add(cb); return () => { listeners.delete(cb); }; },
+    getHighlights: (chapterIndex: number) => data[chapterIndex],
+    setHighlightsByChapter: (map: Record<number, HighlightData[]>) => { data = map; notify(); },
   };
 }
 
@@ -214,6 +234,9 @@ export default function EpubReaderView({
   const [pageStore] = useState(createPageStore);
   const LAZY_WINDOW = isMobile ? 3 : 4;
   useEffect(() => { pageStore.setLazyWindow(LAZY_WINDOW); }, [LAZY_WINDOW, pageStore]);
+
+  // ---- 外部高亮存储（BookPage 通过 useSyncExternalStore 订阅，不通过 props） ----
+  const [highlightStore] = useState(createHighlightStore);
 
   // ---- 核心状态 ----
   const [showBook, setShowBook] = useState(false);
@@ -462,6 +485,9 @@ export default function EpubReaderView({
     return map;
   }, [rawHighlights]);
 
+  // 同步高亮数据到外部存储 → BookPage 通过 useSyncExternalStore 自动重渲染
+  useEffect(() => { highlightStore.setHighlightsByChapter(highlightsByChapter); }, [highlightsByChapter, highlightStore]);
+
   // ---- 高亮工具栏状态 ----
   interface ToolbarState {
     visible: boolean;
@@ -696,7 +722,13 @@ export default function EpubReaderView({
   // 库内部 getBottomPage/getFlippingPage 可能返回 undefined（索引越界），
   // 但 setRightPage 等方法只检查 !== null，导致对 undefined 调用 .setOrientation() 崩溃。
   // 在 Render 对象上包裹这些方法，将 undefined 转为 null。
-  useEffect(() => {
+  //
+  // 使用 onInit 回调而非 useEffect：
+  // key={settingsKey} 导致 HTMLFlipBook 重新挂载，其内部 PageFlip 实例在第二个 render cycle
+  // 的 effect 中才创建。而父组件的 useEffect 在第一个 cycle 就运行了——此时
+  // flipBookRef.current.pageFlip() 返回 undefined，导致 monkeypatch 永远无法应用。
+  // onInit 在 PageFlip.loadFromHTML 完成后立即触发，此时 render 对象已就绪。
+  const handleFlipBookInit = useCallback(() => {
     const pf = flipBookRef.current?.pageFlip();
     if (!pf) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -710,7 +742,7 @@ export default function EpubReaderView({
         render[`__patched_${m}`] = true;
       }
     }
-  }, [settingsKey]);
+  }, []);
 
   // ---- 键盘 ----
   useEffect(() => {
@@ -794,12 +826,12 @@ export default function EpubReaderView({
 
   const stableChildren = useMemo(() => allPages.map(p => (
     <BookPage key={p.globalPageIndex} pageIndex={p.globalPageIndex}
+      chapterIndex={p.chapterIndex}
       chapterHtml={chapters[p.chapterIndex]?.html || ''} pageInChapter={p.pageInChapter}
       chapterPages={p.chapterPages} pageWidth={contentWidth} pageHeight={contentHeight}
       pageNumber={p.globalPageIndex + 1} totalPages={pagination.totalPages}
-      fontSize={fontSize} lineHeight={lineHeightVal} fontFamily={fontFamily} theme={theme} padding={pagePadding}
-      highlights={highlightsByChapter[p.chapterIndex]} />
-  )), [allPages, chapters, contentWidth, contentHeight, pagination.totalPages, fontSize, lineHeightVal, fontFamily, theme, pagePadding, highlightsByChapter]);
+      fontSize={fontSize} lineHeight={lineHeightVal} fontFamily={fontFamily} theme={theme} padding={pagePadding} />
+  )), [allPages, chapters, contentWidth, contentHeight, pagination.totalPages, fontSize, lineHeightVal, fontFamily, theme, pagePadding]);
 
   return (
     <div ref={containerRef} className={`book-container ${themeClass}`}>
@@ -843,6 +875,7 @@ export default function EpubReaderView({
           {!isMobile && <div className="page-stack-left" />}
           {!isMobile && <div className="page-stack-right" />}
 
+          <HighlightStoreContext.Provider value={highlightStore}>
           <PageStoreContext.Provider value={pageStore}>
             <HTMLFlipBook key={settingsKey} ref={flipBookRef} className="book-flipbook"
               width={pageDimensions.pageW} height={pageDimensions.pageH} size="fixed"
@@ -854,10 +887,11 @@ export default function EpubReaderView({
               showPageCorners={false} disableFlipByClick={isMobile} clickEventForward={!isMobile}
               swipeDistance={15} startPage={currentPage} startZIndex={2} autoSize={false}
               renderOnlyPageLengthChange={true}
-              onFlip={handleFlip} style={{}}>
+              onInit={handleFlipBookInit} onFlip={handleFlip} style={{}}>
               {stableChildren}
             </HTMLFlipBook>
           </PageStoreContext.Provider>
+          </HighlightStoreContext.Provider>
 
           {!isMobile && <div className="book-spine" />}
 

@@ -1,9 +1,10 @@
 import React, { useContext, useMemo, useCallback, useSyncExternalStore } from 'react';
-import { PageStoreContext } from './EpubReaderView';
-import { injectHighlightsIntoHtml, type HighlightData } from '@/lib/highlight-anchor';
+import { PageStoreContext, HighlightStoreContext } from './EpubReaderView';
+import { injectHighlightsIntoHtml } from '@/lib/highlight-anchor';
 
 interface BookPageProps {
   pageIndex: number;
+  chapterIndex: number;       // 章节索引，用于从高亮 store 查询
   chapterHtml: string;        // 始终为完整章节 HTML（引用稳定），由内部 isNear 决定是否渲染
   pageInChapter: number;
   chapterPages: number;       // 该章节总页数，用于精确计算容器宽度
@@ -16,7 +17,6 @@ interface BookPageProps {
   fontFamily: string;
   theme: string;
   padding: number;            // 页面内边距（移动端更小）
-  highlights?: HighlightData[]; // 该章节的高亮列表
 }
 
 const THEME_MAP: Record<string, { pageNumColor: string }> = {
@@ -62,6 +62,7 @@ const BookPage = React.forwardRef<HTMLDivElement, BookPageProps>(
   (
     {
       pageIndex,
+      chapterIndex,
       chapterHtml,
       pageInChapter,
       chapterPages,
@@ -74,11 +75,11 @@ const BookPage = React.forwardRef<HTMLDivElement, BookPageProps>(
       fontFamily,
       theme,
       padding,
-      highlights,
     },
     ref,
   ) => {
     const pageStore = useContext(PageStoreContext);
+    const highlightStore = useContext(HighlightStoreContext);
 
     // 创建稳定的 getSnapshot 函数（只依赖 pageIndex，不会变）
     // 双中心检测：检查 currentPage 和 initialPage，任一命中即渲染内容。
@@ -95,6 +96,18 @@ const BookPage = React.forwardRef<HTMLDivElement, BookPageProps>(
       pageStore?.subscribe ?? noopSubscribe,
       getIsNear,
       getIsNear, // SSR snapshot（'use client' 组件不会实际用到）
+    );
+
+    // 订阅高亮外部存储 → 高亮变化时仅当前章节的 BookPage 重渲染，
+    // 不触发 HTMLFlipBook 的 children 变化 → 不会重建页面集合 → 不会跳页
+    const getHighlights = useCallback(
+      () => highlightStore?.getHighlights(chapterIndex),
+      [highlightStore, chapterIndex],
+    );
+    const highlights = useSyncExternalStore(
+      highlightStore?.subscribe ?? noopSubscribe,
+      getHighlights,
+      getHighlights,
     );
 
     // 只有 isNear 为 true 时才渲染真实内容
@@ -234,8 +247,10 @@ BookPage.displayName = 'BookPage';
 export default React.memo(BookPage, (prev, next) => {
   // 快速路径：如果 chapterHtml 引用相同（同一章节，未重新解析），
   // 且排版参数不变，直接跳过。
+  // 高亮数据通过外部 store（useSyncExternalStore）获取，不参与 memo 比较。
   if (prev.chapterHtml !== next.chapterHtml) return false;
   if (prev.pageIndex !== next.pageIndex) return false;
+  if (prev.chapterIndex !== next.chapterIndex) return false;
   if (prev.chapterPages !== next.chapterPages) return false;
   if (prev.pageWidth !== next.pageWidth) return false;
   if (prev.pageHeight !== next.pageHeight) return false;
@@ -246,6 +261,5 @@ export default React.memo(BookPage, (prev, next) => {
   if (prev.totalPages !== next.totalPages) return false;
   if (prev.pageInChapter !== next.pageInChapter) return false;
   if (prev.padding !== next.padding) return false;
-  if (prev.highlights !== next.highlights) return false;
   return true;
 });
