@@ -561,40 +561,11 @@ export default function AdminPage() {
                       {isSaving ? '正在同步' : hasChanges ? '保存修改' : '已同步'}
                     </button>
                     <button
-                      onClick={async () => {
-                        const newPublished = !form.published;
-                        setForm((prev) => ({ ...prev, published: newPublished }));
-                        const postData = {
-                          id: selectedId,
-                          title: form.title,
-                          slug: form.slug || generateSlug(form.title),
-                          content: form.content,
-                          excerpt: form.excerpt,
-                          tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
-                          published: newPublished,
-                          categoryId: form.categoryId || null,
-                        };
-                        try {
-                          await updateArticle(postData);
-                          mutate((key) => typeof key === 'string' && key.startsWith('/api/article'));
-                          showMessage('success', newPublished ? '文章已发布' : '文章已存为草稿');
-                          setHasChanges(false);
-                        } catch (error) {
-                          console.error('Failed to publish:', error);
-                          if (isUnauthorizedError(error)) {
-                            handleUnauthorized();
-                            return;
-                          }
-                          showMessage('error', '操作失败');
-                        }
-                      }}
-                      disabled={isSaving || !form.title.trim()}
-                      className={`px-6 py-2 rounded-xl text-[11px] font-extrabold uppercase tracking-[0.2em] transition-all shadow-md active:scale-95 cursor-pointer ${form.published
-                          ? 'bg-red-500 text-white hover:bg-red-600 shadow-red-500/20'
-                          : 'bg-primary text-primary-foreground hover:shadow-lg hover:shadow-primary/30'
-                        }`}
+                      disabled
+                      className="px-6 py-2 rounded-xl text-[11px] font-extrabold uppercase tracking-[0.2em] bg-muted/10 text-muted/40 border border-card-border/40 cursor-not-allowed"
+                      title="发布功能暂未开放"
                     >
-                      {form.published ? '撤回发布' : '发布文档'}
+                      暂未开放
                     </button>
                   </div>
 
@@ -650,40 +621,11 @@ export default function AdminPage() {
                     </button>
                     
                     <button
-                      onClick={async () => {
-                        const newPublished = !form.published;
-                        setForm((prev) => ({ ...prev, published: newPublished }));
-                        const postData = {
-                          id: selectedId,
-                          title: form.title,
-                          slug: form.slug || generateSlug(form.title),
-                          content: form.content,
-                          excerpt: form.excerpt,
-                          tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
-                          published: newPublished,
-                          categoryId: form.categoryId || null,
-                        };
-                        try {
-                          await updateArticle(postData);
-                          mutate((key) => typeof key === 'string' && key.startsWith('/api/article'));
-                          showMessage('success', newPublished ? '已发布' : '已存为草稿');
-                          setHasChanges(false);
-                        } catch (error) {
-                          console.error('Failed to publish:', error);
-                          if (isUnauthorizedError(error)) {
-                            handleUnauthorized();
-                            return;
-                          }
-                          showMessage('error', '操作失败');
-                        }
-                      }}
-                      disabled={isSaving || !form.title.trim()}
-                      className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${form.published
-                          ? 'bg-red-500 text-white'
-                          : 'bg-primary text-primary-foreground'
-                        }`}
+                      disabled
+                      className="px-3 py-1.5 rounded-lg text-[10px] font-bold text-muted/40 bg-muted/10 cursor-not-allowed"
+                      title="发布功能暂未开放"
                     >
-                      {form.published ? '撤回' : '发布'}
+                      暂未开放
                     </button>
 
                     <button
