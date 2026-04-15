@@ -1,9 +1,11 @@
 import { prisma } from '@/lib/prisma';
 import { requireAuth, success, ApiError } from '@/lib/api-response';
+import { isUserDeveloper } from '@/lib/admin-auth';
 
 /**
  * POST /api/library/delete
  * 删除书籍
+ * 开发者/管理员可删除任何人的书籍，普通用户只能删除自己的
  * 
  * Body: { id: string }
  */
@@ -18,16 +20,20 @@ export async function POST(request: Request) {
       return ApiError.badRequest('缺少书籍 ID');
     }
 
-    // 验证所有权
+    const [isDeveloper, user] = await Promise.all([
+      isUserDeveloper(userId!),
+      prisma.user.findUnique({ where: { id: userId! }, select: { isAdmin: true } }),
+    ]);
+    const hasAdminPrivilege = isDeveloper || user?.isAdmin;
+
     const book = await prisma.book.findFirst({
-      where: { id, userId: userId! },
+      where: hasAdminPrivilege ? { id } : { id, userId: userId! },
     });
 
     if (!book) {
       return ApiError.notFound('书籍不存在');
     }
 
-    // 删除书籍（级联删除进度、书签、划线笔记）
     await prisma.book.delete({
       where: { id },
     });
