@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import OSS from 'ali-oss';
 import { prisma } from '@/lib/prisma';
 import { requireAuth, ApiError } from '@/lib/api-response';
+import { uploadToLocal, validateLocalStoragePath } from '@/lib/storage/local';
 
 // 允许的图片类型
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
@@ -57,6 +58,8 @@ export async function POST(request: Request) {
         ossDomain: true,
         defaultOssUsedBytes: true,
         defaultOssUsedCount: true,
+        storageType: true,
+        localStoragePath: true,
       },
     });
 
@@ -73,10 +76,75 @@ export async function POST(request: Request) {
           ossDomain: true,
           defaultOssUsedBytes: true,
           defaultOssUsedCount: true,
+          storageType: true,
+          localStoragePath: true,
         },
       });
     }
 
+    // 检查是否使用本地存储
+    const useLocalStorage = siteConfig.storageType === 'local';
+
+    // 如果使用本地存储，验证路径配置
+    if (useLocalStorage) {
+      const pathValidation = validateLocalStoragePath(siteConfig.localStoragePath || '');
+      if (!pathValidation.valid) {
+        return NextResponse.json({
+          code: 400,
+          message: pathValidation.message || '请先配置本地存储路径',
+          data: null,
+        }, { status: 400 });
+      }
+
+      // 解析 multipart/form-data
+      const formData = await request.formData();
+      const file = formData.get('file') as File | null;
+
+      if (!file) {
+        return NextResponse.json({
+          code: 400,
+          message: '请选择要上传的图片',
+          data: null,
+        }, { status: 400 });
+      }
+
+      // 验证文件类型
+      if (!ALLOWED_TYPES.includes(file.type)) {
+        return NextResponse.json({
+          code: 400,
+          message: '不支持的图片格式，请上传 JPG、PNG、GIF、WebP 或 SVG 格式',
+          data: null,
+        }, { status: 400 });
+      }
+
+      // 验证文件大小
+      if (file.size > MAX_SIZE) {
+        return NextResponse.json({
+          code: 400,
+          message: '图片大小不能超过 10MB',
+          data: null,
+        }, { status: 400 });
+      }
+
+      // 上传到本地存储
+      const { url, relativePath } = await uploadToLocal(
+        file,
+        userId!,
+        siteConfig.localStoragePath || undefined
+      );
+
+      return NextResponse.json({
+        code: 200,
+        message: '上传成功',
+        data: {
+          url,
+          storageType: 'local',
+          relativePath,
+        },
+      });
+    }
+
+    // 以下是 OSS 上传逻辑
     // 判断使用用户自己的 OSS 还是默认 OSS
     const hasUserOss = !!(
       siteConfig.ossRegion &&
@@ -252,7 +320,7 @@ export async function POST(request: Request) {
 
 /**
  * GET /api/upload/image
- * 测试 OSS 连接
+ * 测试存储连接（OSS 或本地存储）
  */
 export async function GET() {
   try {
@@ -266,9 +334,38 @@ export async function GET() {
         ossBucket: true,
         ossAccessKeyId: true,
         ossAccessKeySecret: true,
+        storageType: true,
+        localStoragePath: true,
       },
     });
 
+    // 如果没有配置
+    if (!siteConfig) {
+      return NextResponse.json({
+        code: 400,
+        message: '请先配置存储方式',
+        data: { connected: false },
+      }, { status: 400 });
+    }
+
+    // 如果使用本地存储
+    if (siteConfig.storageType === 'local') {
+      const pathValidation = validateLocalStoragePath(siteConfig.localStoragePath || '');
+      if (!pathValidation.valid) {
+        return NextResponse.json({
+          code: 400,
+          message: pathValidation.message || '本地存储路径配置无效',
+          data: { connected: false },
+        }, { status: 400 });
+      }
+      return NextResponse.json({
+        code: 200,
+        message: '本地存储配置有效',
+        data: { connected: true, storageType: 'local' },
+      });
+    }
+
+    // 测试 OSS 连接
     if (!siteConfig?.ossRegion || !siteConfig?.ossBucket || 
         !siteConfig?.ossAccessKeyId || !siteConfig?.ossAccessKeySecret) {
       return NextResponse.json({
@@ -292,13 +389,13 @@ export async function GET() {
     return NextResponse.json({
       code: 200,
       message: 'OSS 连接成功',
-      data: { connected: true },
+      data: { connected: true, storageType: 'oss' },
     });
 
   } catch (error) {
-    console.error('OSS connection test failed:', error);
+    console.error('Storage connection test failed:', error);
     
-    let message = 'OSS 连接失败';
+    let message = '存储连接失败';
     if (error instanceof Error) {
       if (error.message.includes('AccessDenied')) {
         message = 'AccessKey 无权限或已失效';
