@@ -41,6 +41,7 @@ import type { HighlightItem } from '@/lib/hooks/use-library';
 import BookPage from './BookPage';
 import HighlightToolbar from './HighlightToolbar';
 import NotePopover from './NotePopover';
+import AiReadingMenu from './AiReadingMenu';
 import './epub-reader.css';
 
 // ---- 页面状态外部存储（BookPage 子组件订阅，避免父组件重渲染） ----
@@ -515,6 +516,17 @@ export default function EpubReaderView({
   }
   const [popover, setPopover] = useState<PopoverState>({ visible: false, readOnly: false, x: 0, y: 0, flipDown: false, highlightId: '', text: '', color: 'yellow', note: null });
 
+  // ---- AI 阅读菜单状态 ----
+  interface AiPanelState {
+    visible: boolean;
+    x: number;
+    y: number;
+    flipDown: boolean;
+    text: string;
+    location: string;
+  }
+  const [aiPanel, setAiPanel] = useState<AiPanelState>({ visible: false, x: 0, y: 0, flipDown: false, text: '', location: '' });
+
   // ---- 划线模式（禁用翻页手势，启用文字选择） ----
   const [selectionMode, setSelectionMode] = useState(false);
   const bookFrameRef = useRef<HTMLDivElement>(null);
@@ -522,6 +534,7 @@ export default function EpubReaderView({
   const toggleSelectionMode = useCallback(() => {
     setToolbar(prev => prev.visible ? { ...prev, visible: false } : prev);
     setPopover(prev => prev.visible ? { ...prev, visible: false } : prev);
+    setAiPanel(prev => prev.visible ? { ...prev, visible: false } : prev);
     window.getSelection()?.removeAllRanges();
     setSelectionMode(prev => !prev);
   }, []);
@@ -541,7 +554,7 @@ export default function EpubReaderView({
     const intercept = (e: Event) => {
       const t = e.target as HTMLElement;
       // 不拦截 UI 控件
-      if (t.closest('.hl-toolbar') || t.closest('.hl-popover') || t.closest('.hl-note-viewer') || t.closest('.hl-mode-toggle')) return;
+      if (t.closest('.hl-toolbar') || t.closest('.hl-popover') || t.closest('.hl-note-viewer') || t.closest('.hl-mode-toggle') || t.closest('.hl-ai-menu')) return;
       // 始终拦截点击高亮文字
       if (t.closest('mark.hl-mark')) { e.stopPropagation(); return; }
       // 划线模式：拦截全部
@@ -570,7 +583,7 @@ export default function EpubReaderView({
   const handleMouseUp = useCallback((e: MouseEvent) => {
     // 忽略 UI 控件内部的事件
     const target = e.target as HTMLElement;
-    if (target.closest('.hl-toolbar') || target.closest('.hl-popover') || target.closest('.hl-note-viewer')) return;
+    if (target.closest('.hl-toolbar') || target.closest('.hl-popover') || target.closest('.hl-note-viewer') || target.closest('.hl-ai-menu')) return;
 
     // 检查是否点击了已高亮的文字
     const markEl = target.closest('mark.hl-mark') as HTMLElement | null;
@@ -703,6 +716,31 @@ export default function EpubReaderView({
 
   const handleToolbarClose = useCallback(() => {
     setToolbar(prev => ({ ...prev, visible: false }));
+  }, []);
+
+  const handleToolbarAi = useCallback(() => {
+    const pending = pendingHighlightRef.current;
+    if (!pending) return;
+    // 复用工具栏位置，打开 AI 菜单；AI 菜单尺寸较大（~300-400px），根据上下可用空间重新决定 flipDown
+    const frame = bookFrameRef.current?.getBoundingClientRect();
+    const spaceAbove = toolbar.y;
+    const spaceBelow = frame ? frame.height - toolbar.y : 0;
+    const flipDown = spaceAbove < 320 && spaceBelow > spaceAbove;
+    setAiPanel({
+      visible: true,
+      x: toolbar.x,
+      y: toolbar.y,
+      flipDown,
+      text: pending.text,
+      location: pending.location,
+    });
+    setToolbar(prev => ({ ...prev, visible: false }));
+    pendingHighlightRef.current = null;
+    window.getSelection()?.removeAllRanges();
+  }, [toolbar.x, toolbar.y]);
+
+  const handleAiPanelClose = useCallback(() => {
+    setAiPanel(prev => ({ ...prev, visible: false }));
   }, []);
 
   // ---- 笔记弹窗操作回调 ----
@@ -903,7 +941,20 @@ export default function EpubReaderView({
               onHighlight={handleToolbarHighlight}
               onNote={handleToolbarNote}
               onCopy={handleToolbarCopy}
+              onAi={handleToolbarAi}
               onClose={handleToolbarClose}
+            />
+          )}
+
+          {/* AI 阅读助手菜单 */}
+          {aiPanel.visible && (
+            <AiReadingMenu
+              position={{ x: aiPanel.x, y: aiPanel.y }}
+              flipDown={aiPanel.flipDown}
+              text={aiPanel.text}
+              location={aiPanel.location}
+              onAddHighlight={onAddHighlight}
+              onClose={handleAiPanelClose}
             />
           )}
 

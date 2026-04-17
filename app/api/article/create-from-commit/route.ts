@@ -1,13 +1,16 @@
 import { prisma } from '@/lib/prisma';
-import { created, ApiError, requireTokenAuth, validateRequired } from '@/lib/api-response';
+import { created, ApiError, requireAuthOrToken, validateRequired } from '@/lib/api-response';
 import { NextResponse } from 'next/server';
 import { markdownToTiptap } from '@/lib/markdown-to-tiptap';
 
 /**
  * POST /api/article/create-from-commit
- * 通过 API Token 创建文章（用于 GitHub Actions 等外部服务）
- * 
- * 请求头：
+ * 创建 Markdown 文章（内部会转成 TipTap JSON）。
+ * 同时支持两种鉴权：
+ *   1) Session cookie（浏览器已登录的用户，例如 ptc-cortex 这种同域 Web 调用）
+ *   2) API Token（GitHub Actions / CLI 等外部服务）
+ *
+ * 请求头（二选一）：
  *   Authorization: Bearer ink_xxxxxxxx
  * 
  * 请求体：
@@ -29,8 +32,8 @@ import { markdownToTiptap } from '@/lib/markdown-to-tiptap';
  */
 export async function POST(request: Request) {
   try {
-    // 使用 Token 认证
-    const { userId, error: authError } = await requireTokenAuth(request);
+    // Session 优先，Token 兜底
+    const { userId, error: authError } = await requireAuthOrToken(request);
     if (authError) return authError;
 
     const data = await request.json();

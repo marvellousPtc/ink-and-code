@@ -61,9 +61,9 @@ export async function POST(request: Request) {
       return ApiError.badRequest('缺少必要参数');
     }
 
-    // 验证书籍所有权
-    const book = await prisma.book.findFirst({
-      where: { id: data.bookId, userId: userId! },
+    const book = await prisma.book.findUnique({
+      where: { id: data.bookId },
+      select: { id: true },
     });
     if (!book) return ApiError.notFound('书籍不存在');
 

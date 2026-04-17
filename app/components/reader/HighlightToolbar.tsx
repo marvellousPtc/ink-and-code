@@ -21,12 +21,14 @@ interface HighlightToolbarProps {
   onNote: () => void;
   /** 复制选中文字 */
   onCopy: () => void;
+  /** 打开 AI 阅读辅助菜单 */
+  onAi: () => void;
   /** 关闭工具栏 */
   onClose: () => void;
 }
 
 export default function HighlightToolbar({
-  position, flipDown, onHighlight, onNote, onCopy, onClose,
+  position, flipDown, onHighlight, onNote, onCopy, onAi, onClose,
 }: HighlightToolbarProps) {
   const handleColor = useCallback((color: string) => {
     onHighlight(color);
@@ -42,6 +44,11 @@ export default function HighlightToolbar({
     onNote();
     onClose();
   }, [onNote, onClose]);
+
+  const handleAi = useCallback(() => {
+    onAi();
+    onClose();
+  }, [onAi, onClose]);
 
   return (
     <div
@@ -82,6 +89,18 @@ export default function HighlightToolbar({
           <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
           <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
         </svg>
+      </button>
+
+      <div className="hl-toolbar-sep" />
+
+      {/* AI 按钮 */}
+      <button className="hl-toolbar-btn hl-toolbar-ai" title="AI 助手" onClick={handleAi}>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 3l1.9 4.8L18.6 9.6 13.8 11.5 12 16.3 10.2 11.5 5.4 9.6 10.1 7.8z" />
+          <path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z" />
+          <path d="M5 3l.6 1.4L7 5l-1.4.6L5 7l-.6-1.4L3 5l1.4-.6z" />
+        </svg>
+        <span className="hl-toolbar-ai-label">AI</span>
       </button>
     </div>
   );

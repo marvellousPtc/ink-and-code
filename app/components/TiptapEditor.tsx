@@ -46,7 +46,9 @@ import {
   Trash2,
   Columns,
   Rows,
+  Sparkles,
 } from 'lucide-react';
+import AiWritingMenu from './AiWritingMenu';
 import { Toggle } from '@/components/ui/toggle';
 import {
   Tooltip,
@@ -824,6 +826,23 @@ export default function TiptapEditor({
           )}
         </div>
 
+        <div className="w-px h-4 bg-card-border/60 mx-1" />
+
+        {/* AI 写作 */}
+        <div className="flex items-center gap-0.5 px-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center gap-1 px-2 py-1 rounded-md text-rose-500/70 cursor-default select-none">
+                <Sparkles className="size-3.5" />
+                <span className="text-[10px] font-bold tracking-wider uppercase">AI</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" sideOffset={5}>
+              选中文字后出现 AI 菜单
+            </TooltipContent>
+          </Tooltip>
+        </div>
+
         <div className="flex-1" />
 
         {/* 历史记录 */}
@@ -856,8 +875,9 @@ export default function TiptapEditor({
           )}
 
           {/* 编辑区容器 */}
-          <div className="flex-1">
+          <div className="flex-1 relative">
             <EditorContent editor={editor} className="tiptap-editor-content" />
+            <AiWritingMenu editor={editor} />
           </div>
         </div>
       </div>

@@ -56,6 +56,9 @@ model User {
   highlights        Highlight[]
   readingSettings   ReadingSettings?
 
+  // AI 使用记录
+  aiUsage           AiUsage[]
+
   @@map("users")
 }
 
@@ -364,4 +367,21 @@ model ReadingSettings {
   updatedAt  DateTime @updatedAt @map("updated_at")
 
   @@map("reading_settings")
+}
+
+// ==========================================
+// AI 使用量追踪
+// ==========================================
+
+model AiUsage {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  date      String   // "2026-04-16" 格式，按天统计
+  endpoint  String   @default("chat") // chat / writing / reading
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+  @@map("ai_usage")
 }
