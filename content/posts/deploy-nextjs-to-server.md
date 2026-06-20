@@ -102,7 +102,7 @@ GitHub Secrets 用于安全地存储敏感信息，如服务器 IP、SSH 密钥�
 
 | Name | Value | 说明 |
 |------|-------|------|
-| `SERVER_HOST` | `119.91.214.9` | 服务器 IP 地址 |
+| `SERVER_HOST` | `<你的服务器 IP>` | 服务器 IP 地址 |
 | `SERVER_USER` | `root` | SSH 登录用户名 |
 | `SERVER_PORT` | `22` | SSH 端口号 |
 | `SERVER_SSH_KEY` | （私钥内容） | github_actions_deploy 文件的完整内容 |

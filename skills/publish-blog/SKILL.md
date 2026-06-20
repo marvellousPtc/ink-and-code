@@ -24,7 +24,7 @@
 需要配置环境变量（添加到 ~/.zshrc 或 ~/.bashrc）：
 ```bash
 export INK_AND_CODE_TOKEN="ink_your_api_token_here"
-export INK_AND_CODE_URL="http://8.134.248.1:3000"
+export INK_AND_CODE_URL="https://your-domain.com"
 ```
 
 获取 Token：访问网站 -> 设置 -> API Token -> 创建新 Token
