@@ -16,6 +16,7 @@ import {
   useCallback,
   useState,
   useMemo,
+  type MouseEvent as ReactMouseEvent,
 } from 'react';
 import HTMLFlipBook from 'react-pageflip-enhanced';
 import { useServerChapters } from '@/lib/hooks/use-server-chapters';
@@ -782,6 +783,18 @@ export default function EpubReaderView({
     }
   }, []);
 
+  // ---- 翻页时不触发父级工具栏显隐 ----
+  // 翻页库在 mousedown/mouseup（桌面）或 touchend（移动端）触发翻页时，
+  // 会同步把内部状态置为 'flipping'/'user_fold'。浏览器随后派发的 click 事件
+  // 会冒泡到父级阅读页的 onClick={handleToggleToolbar}，导致翻页同时切换工具栏。
+  // 在捕获阶段检测：若翻页库正处于翻页状态，说明此次点击已用于翻页，阻止冒泡。
+  const handleClickCapture = useCallback((e: ReactMouseEvent) => {
+    const pf = flipBookRef.current?.pageFlip?.();
+    if (pf && pf.getState() !== 'read') {
+      e.stopPropagation();
+    }
+  }, []);
+
   // ---- 键盘 ----
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -908,6 +921,7 @@ export default function EpubReaderView({
 
       {allPages.length > 0 && containerSize.w > 0 && settingsKey && (
         <div ref={bookFrameRef} className={`book-frame ${selectionMode ? 'hl-selection-active' : ''}`}
+          onClickCapture={handleClickCapture}
           style={{ position: 'relative', opacity: showBook ? 1 : 0, transition: 'opacity 0.3s ease-in' }}>
           {!isMobile && <div className="book-shadow" />}
           {!isMobile && <div className="page-stack-left" />}
