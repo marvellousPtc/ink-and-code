@@ -257,7 +257,7 @@ export default async function LandingPage() {
 
               <div className="flex items-center gap-4 pt-2">
                 <Link
-                  href={session?.user ? '/admin/posts' : '/login'}
+                  href={session?.user ? '/admin' : '/login'}
                   className="group inline-flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-xl text-sm font-bold tracking-wider uppercase hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20"
                 >
                   <PenTool className="w-4 h-4" />
