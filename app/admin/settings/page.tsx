@@ -8,6 +8,7 @@ import { ProfileSection } from './components/ProfileSection';
 import { SiteInfoSection } from './components/SiteInfoSection';
 import { SocialLinksSection } from './components/SocialLinksSection';
 import { OssConfigSection } from './components/OssConfigSection';
+import { LocalStorageSection } from './components/LocalStorageSection';
 import { ApiTokenSection } from './components/ApiTokenSection';
 
 interface UserProfile {
@@ -35,6 +36,9 @@ interface SiteConfig {
   ossAccessKeySecret: string | null;
   ossDir: string | null;
   ossDomain: string | null;
+  // Storage Type
+  storageType: string | null;
+  localStoragePath: string | null;
 }
 
 export default function SettingsPage() {
@@ -47,12 +51,17 @@ export default function SettingsPage() {
   const [siteConfig, setSiteConfig] = useState<SiteConfig>({
     siteName: '', siteTagline: '', primaryColor: '',
     githubUrl: '', twitterUrl: '', linkedinUrl: '', websiteUrl: '',
-    ossRegion: '', ossBucket: '', ossAccessKeyId: '', ossAccessKeySecret: '', ossDir: '', ossDomain: ''
+    ossRegion: '', ossBucket: '', ossAccessKeyId: '', ossAccessKeySecret: '', ossDir: '', ossDomain: '',
+    storageType: '', localStoragePath: ''
   });
 
   // OSS Test State
   const [testingOss, setTestingOss] = useState(false);
   const [ossTestResult, setOssTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Local Storage Test State
+  const [testingLocal, setTestingLocal] = useState(false);
+  const [localTestResult, setLocalTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -175,6 +184,26 @@ export default function SettingsPage() {
       setOssTestResult({ success: false, message: '测试失败，请检查网络' });
     } finally {
       setTestingOss(false);
+    }
+  };
+
+  // Test Local Storage Connection
+  const testLocalConnection = async () => {
+    setTestingLocal(true);
+    setLocalTestResult(null);
+    
+    try {
+      const res = await fetch('/api/upload/image/local');
+      const data = await res.json();
+      
+      setLocalTestResult({
+        success: data.data?.connected || false,
+        message: data.message,
+      });
+    } catch {
+      setLocalTestResult({ success: false, message: '测试失败，请检查网络' });
+    } finally {
+      setTestingLocal(false);
     }
   };
 
@@ -301,6 +330,17 @@ export default function SettingsPage() {
                     onTestConnection={testOssConnection}
                     testResult={ossTestResult}
                     isTesting={testingOss}
+                />
+
+                <LocalStorageSection 
+                  config={{
+                    storageType: siteConfig.storageType,
+                    localStoragePath: siteConfig.localStoragePath,
+                  }}
+                  onUpdate={handleUpdateSiteConfig}
+                  onTestConnection={testLocalConnection}
+                  testResult={localTestResult}
+                  isTesting={testingLocal}
                 />
 
                 <ApiTokenSection />

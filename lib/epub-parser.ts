@@ -37,6 +37,11 @@ export interface OssConfig {
   region: string;
 }
 
+export interface LocalStorageOptions {
+  uploadToLocal: (buffer: Buffer, relativePath: string) => Promise<string>;
+  userId: string;
+}
+
 // ---- ZIP 解析（复用 epub-cover.ts 的逻辑） ----
 
 function readZipEntries(zipBuffer: Buffer): Map<string, Buffer> {
@@ -194,10 +199,14 @@ function parseOpf(opfContent: string) {
 export async function parseEpubContent(
   epubBuffer: Buffer,
   bookId: string,
-  ossClient: OSS,
+  ossClient: OSS | null,
   ossConfig: OssConfig,
+  localOptions?: LocalStorageOptions,
 ): Promise<EpubParseResult> {
   const entries = readZipEntries(epubBuffer);
+
+  // 判断存储类型
+  const isLocalStorage = !ossClient || localOptions !== undefined;
 
   // 1. 找 OPF 文件
   const containerXml = entries.get('META-INF/container.xml');
@@ -229,22 +238,35 @@ export async function parseEpubContent(
       || entries.get(decodeURIComponent(resolvedPath));
   };
 
-  /** 上传图片到 OSS，返回公开 URL */
+  /** 上传图片，返回公开 URL（支持 OSS 或本地存储） */
   const uploadImage = async (imagePath: string, imageData: Buffer): Promise<string> => {
     if (imageUrlCache.has(imagePath)) return imageUrlCache.get(imagePath)!;
 
     const ext = imagePath.split('.').pop()?.toLowerCase() || 'bin';
     const safeFileName = imagePath.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const objectName = `${ossConfig.dir}/epub-assets/${bookId}/${safeFileName}`;
+    const relativePath = `uploads/${localOptions?.userId || bookId}/epub-assets/${safeFileName}`;
     const contentType = getMimeType(imagePath);
 
     try {
-      await ossClient.put(objectName, imageData, {
-        headers: { 'Content-Type': contentType },
-      });
-      const url = buildOssUrl(objectName, ossConfig);
-      imageUrlCache.set(imagePath, url);
-      return url;
+      if (isLocalStorage && localOptions) {
+        // 本地存储
+        const url = await localOptions.uploadToLocal(imageData, relativePath);
+        imageUrlCache.set(imagePath, url);
+        return url;
+      } else if (ossClient && !isLocalStorage) {
+        // OSS 存储
+        const objectName = `${ossConfig.dir}/epub-assets/${bookId}/${safeFileName}`;
+        await ossClient.put(objectName, imageData, {
+          headers: { 'Content-Type': contentType },
+        });
+        const url = buildOssUrl(objectName, ossConfig);
+        imageUrlCache.set(imagePath, url);
+        return url;
+      } else {
+        // 没有配置任何存储，返回空字符串
+        console.warn(`[EPUB Parser] 未配置存储后端，图片将被隐藏: ${imagePath}`);
+        return '';
+      }
     } catch (err) {
       console.warn(`[EPUB Parser] 图片上传失败 ${imagePath}:`, err);
       return ''; // 上传失败返回空，后续会移除该图片

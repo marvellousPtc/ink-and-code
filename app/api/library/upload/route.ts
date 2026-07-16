@@ -5,14 +5,16 @@ import { requireAuth, ApiError } from '@/lib/api-response';
 import { extractEpubCover, extractEpubMetadata } from '@/lib/epub-cover';
 import { parseEpubContent, type OssConfig } from '@/lib/epub-parser';
 import { execFile } from 'child_process';
-import { writeFile, readFile, unlink, mkdtemp } from 'fs/promises';
+import { writeFile, readFile, unlink, mkdtemp, mkdir } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
 
-// Route Segment Config - 增加超时和 body 大小限制
-export const maxDuration = 120; // 秒，给大文件和格式转换留足时间
+// ============================================
+// 常量定义
+// ============================================
 
-// 允许的电子书 MIME 类型映射
+export const maxDuration = 120; // 秒
+
 const FORMAT_MAP: Record<string, string> = {
   'application/epub+zip': 'epub',
   'application/pdf': 'pdf',
@@ -23,306 +25,332 @@ const FORMAT_MAP: Record<string, string> = {
   'application/x-mobipocket-ebook': 'mobi',
 };
 
-// 通过文件扩展名判断格式（MIME 不总是可靠）
 const EXT_FORMAT_MAP: Record<string, string> = {
-  epub: 'epub',
-  pdf: 'pdf',
-  txt: 'txt',
-  md: 'md',
-  markdown: 'md',
-  html: 'html',
-  htm: 'html',
-  docx: 'docx',
-  mobi: 'mobi',
-  azw3: 'azw3',
-  azw: 'azw3',
+  epub: 'epub', pdf: 'pdf', txt: 'txt', md: 'md', markdown: 'md',
+  html: 'html', htm: 'html', docx: 'docx', mobi: 'mobi',
+  azw3: 'azw3', azw: 'azw3',
 };
 
-// 最大文件大小 100MB
 const MAX_SIZE = 100 * 1024 * 1024;
 
-function hasDefaultOss() {
-  return !!(
-    process.env.DEFAULT_OSS_REGION &&
-    process.env.DEFAULT_OSS_BUCKET &&
-    process.env.DEFAULT_OSS_ACCESS_KEY_ID &&
-    process.env.DEFAULT_OSS_ACCESS_KEY_SECRET
-  );
+const CONTENT_TYPES: Record<string, string> = {
+  epub: 'application/epub+zip',
+  pdf: 'application/pdf',
+  txt: 'text/plain; charset=utf-8',
+  html: 'text/html; charset=utf-8',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  mobi: 'application/x-mobipocket-ebook',
+  azw3: 'application/x-mobipocket-ebook',
+};
+
+// ============================================
+// 存储抽象层
+// ============================================
+
+type StorageType = 'oss' | 'local';
+
+interface StorageAdapter {
+  /** 上传文件，返回公开访问 URL */
+  upload(buffer: Buffer, relativePath: string, contentType: string): Promise<string>;
+  /** 构建文件访问 URL */
+  buildUrl(relativePath: string): string;
 }
 
-function getDefaultOssConfig() {
-  return {
-    region: process.env.DEFAULT_OSS_REGION!,
-    bucket: process.env.DEFAULT_OSS_BUCKET!,
-    accessKeyId: process.env.DEFAULT_OSS_ACCESS_KEY_ID!,
-    accessKeySecret: process.env.DEFAULT_OSS_ACCESS_KEY_SECRET!,
-    dir: process.env.DEFAULT_OSS_DIR || 'public',
-    domain: process.env.DEFAULT_OSS_DOMAIN,
-  };
+class LocalStorageAdapter implements StorageAdapter {
+  private baseDir: string;
+
+  constructor() {
+    this.baseDir = path.join(process.cwd(), 'public');
+  }
+
+  async upload(buffer: Buffer, relativePath: string, _contentType: string): Promise<string> {
+    const fullPath = path.join(this.baseDir, relativePath);
+    await mkdir(path.dirname(fullPath), { recursive: true });
+    await writeFile(fullPath, buffer);
+    return `/${relativePath}`;
+  }
+
+  buildUrl(relativePath: string): string {
+    return `/${relativePath}`;
+  }
 }
 
-/**
- * POST /api/library/upload
- * 上传电子书文件到 OSS 并创建 Book 记录
- */
-export async function POST(request: Request) {
-  try {
-    const { userId, error: authError } = await requireAuth();
-    if (authError) return authError;
+class OssStorageAdapter implements StorageAdapter {
+  private client: OSS;
+  private bucket: string;
+  private region: string;
+  private dir: string;
+  private domain?: string;
 
-    // 获取 OSS 配置
-    let siteConfig = await prisma.siteConfig.findUnique({
-      where: { userId: userId! },
-      select: {
-        ossRegion: true,
-        ossBucket: true,
-        ossAccessKeyId: true,
-        ossAccessKeySecret: true,
-        ossDir: true,
-        ossDomain: true,
-      },
+  constructor(config: {
+    region: string;
+    bucket: string;
+    accessKeyId: string;
+    accessKeySecret: string;
+    dir: string;
+    domain?: string;
+  }) {
+    this.client = new OSS({
+      region: config.region,
+      bucket: config.bucket,
+      accessKeyId: config.accessKeyId,
+      accessKeySecret: config.accessKeySecret,
+      timeout: '300s',
     });
+    this.bucket = config.bucket;
+    this.region = config.region;
+    this.dir = config.dir;
+    this.domain = config.domain;
+  }
 
-    if (!siteConfig) {
-      siteConfig = await prisma.siteConfig.create({
-        data: { userId: userId! },
-        select: {
-          ossRegion: true,
-          ossBucket: true,
-          ossAccessKeyId: true,
-          ossAccessKeySecret: true,
-          ossDir: true,
-          ossDomain: true,
-        },
-      });
-    }
-
-    const hasUserOss = !!(
-      siteConfig.ossRegion &&
-      siteConfig.ossBucket &&
-      siteConfig.ossAccessKeyId &&
-      siteConfig.ossAccessKeySecret
-    );
-    const useDefaultOss = !hasUserOss && hasDefaultOss();
-
-    if (!hasUserOss && !useDefaultOss) {
-      return ApiError.badRequest('请先在设置中配置图床（OSS）');
-    }
-
-    // 解析 FormData
-    const formData = await request.formData();
-    const file = formData.get('file') as File | null;
-    const customTitle = formData.get('title') as string | null;
-    const customAuthor = formData.get('author') as string | null;
-
-    if (!file) {
-      return ApiError.badRequest('请选择要上传的文件');
-    }
-
-    if (file.size > MAX_SIZE) {
-      return ApiError.badRequest('文件大小不能超过 100MB');
-    }
-
-    // 检测文件格式
-    const ext = file.name.split('.').pop()?.toLowerCase() || '';
-    const format = EXT_FORMAT_MAP[ext] || FORMAT_MAP[file.type];
-
-    if (!format) {
-      return ApiError.badRequest(
-        `不支持的文件格式 (.${ext})，支持：EPUB、PDF、TXT、MD、HTML、DOCX、MOBI、AZW3`
-      );
-    }
-
-    // 构建 OSS 配置
-    let ossConfig: {
-      region: string;
-      bucket: string;
-      accessKeyId: string;
-      accessKeySecret: string;
-      dir: string;
-      domain?: string;
-    };
-
-    if (useDefaultOss) {
-      ossConfig = getDefaultOssConfig();
-      ossConfig.dir = `${ossConfig.dir}/${userId}`;
-    } else {
-      ossConfig = {
-        region: siteConfig.ossRegion!,
-        bucket: siteConfig.ossBucket!,
-        accessKeyId: siteConfig.ossAccessKeyId!,
-        accessKeySecret: siteConfig.ossAccessKeySecret!,
-        dir: siteConfig.ossDir || 'library',
-        domain: siteConfig.ossDomain || undefined,
-      };
-    }
-
-    // 创建 OSS 客户端（大文件需要更长的超时时间）
-    const client = new OSS({
-      region: ossConfig.region,
-      bucket: ossConfig.bucket,
-      accessKeyId: ossConfig.accessKeyId,
-      accessKeySecret: ossConfig.accessKeySecret,
-      timeout: '300s', // 5 分钟，避免大文件上传超时
-    });
-
-    // 生成存储路径
-    const timestamp = Date.now();
-    const random = Math.random().toString(36).slice(2, 8);
-    const fileName = `${timestamp}-${random}.${ext}`;
-    const dir = ossConfig.dir.replace(/\/$/, '');
-    const objectName = `${dir}/library/${fileName}`;
-
-    // 上传到 OSS
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    const contentType = file.type || 'application/octet-stream';
-
-    // 分片上传阈值：5MB 以上使用 multipartUpload 并行分片，更快
-    const MULTIPART_THRESHOLD = 5 * 1024 * 1024;
-
-    if (file.size > MULTIPART_THRESHOLD) {
-      // 大文件：写临时文件 → 分片并行上传（比单次 put 快很多）
-      const uploadTmpDir = await mkdtemp(path.join(tmpdir(), 'upload-'));
-      const tmpPath = path.join(uploadTmpDir, fileName);
+  async upload(buffer: Buffer, objectName: string, contentType: string): Promise<string> {
+    const isLargeFile = buffer.length > 5 * 1024 * 1024;
+    
+    if (isLargeFile) {
+      const tmpDir = await mkdtemp(path.join(tmpdir(), 'upload-'));
+      const tmpPath = path.join(tmpDir, path.basename(objectName));
       await writeFile(tmpPath, buffer);
       try {
-        await client.multipartUpload(objectName, tmpPath, {
+        await this.client.multipartUpload(objectName, tmpPath, {
           parallel: 4,
-          partSize: 1 * 1024 * 1024, // 1MB per part
+          partSize: 1 * 1024 * 1024,
           headers: { 'Content-Type': contentType },
         });
       } finally {
         await unlink(tmpPath).catch(() => {});
       }
     } else {
-      // 小文件：直接上传
-      await client.put(objectName, buffer, {
+      await this.client.put(objectName, buffer, {
         headers: { 'Content-Type': contentType },
       });
     }
+    
+    return this.buildUrl(objectName);
+  }
 
-    // 构建文件 URL
-    let fileUrl: string;
-    if (ossConfig.domain) {
-      const domain = ossConfig.domain.replace(/\/$/, '');
-      fileUrl = `${domain}/${objectName}`;
-    } else {
-      const region = ossConfig.region.replace(/^oss-/, '');
-      fileUrl = `https://${ossConfig.bucket}.oss-${region}.aliyuncs.com/${objectName}`;
+  buildUrl(objectName: string): string {
+    if (this.domain) {
+      return `${this.domain.replace(/\/$/, '')}/${objectName}`;
+    }
+    const region = this.region.replace(/^oss-/, '');
+    return `https://${this.bucket}.oss-${region}.aliyuncs.com/${objectName}`;
+  }
+}
+
+// ============================================
+// 存储工厂
+// ============================================
+
+function createStorageAdapter(
+  userId: string,
+  siteConfig: {
+    ossRegion?: string | null;
+    ossBucket?: string | null;
+    ossAccessKeyId?: string | null;
+    ossAccessKeySecret?: string | null;
+    ossDir?: string | null;
+    ossDomain?: string | null;
+    storageType?: string | null;
+  }
+): { adapter: StorageAdapter; type: StorageType; dir: string } {
+  // 严格按照 storageType 配置，不使用 fallback
+  const storageType = siteConfig.storageType === 'oss' ? 'oss' : 'local';
+
+  if (storageType === 'oss') {
+    // 使用用户配置的 OSS
+    const hasUserOss = !!(
+      siteConfig.ossRegion &&
+      siteConfig.ossBucket &&
+      siteConfig.ossAccessKeyId &&
+      siteConfig.ossAccessKeySecret
+    );
+
+    if (hasUserOss) {
+      const adapter = new OssStorageAdapter({
+        region: siteConfig.ossRegion!,
+        bucket: siteConfig.ossBucket!,
+        accessKeyId: siteConfig.ossAccessKeyId!,
+        accessKeySecret: siteConfig.ossAccessKeySecret!,
+        dir: `${siteConfig.ossDir || 'library'}/${userId}`,
+        domain: siteConfig.ossDomain || undefined,
+      });
+      return { adapter, type: 'oss', dir: siteConfig.ossDir || 'library' };
     }
 
-    // EPUB：提取封面和元数据
-    let coverUrl: string | null = null;
-    let epubTitle: string | undefined;
-    let epubAuthor: string | undefined;
+    // 用户选择 OSS 但未配置，返回错误而不是 fallback
+    throw new Error('请先配置 OSS 存储');
+  }
 
+  // 默认使用本地存储
+  const adapter = new LocalStorageAdapter();
+  return { adapter, type: 'local', dir: 'uploads' };
+}
+
+// ============================================
+// 文件转换逻辑（统一）
+// ============================================
+
+interface ConversionResult {
+  buffer: Buffer;
+  ext: string;
+  contentType: string;
+  originalFileName?: string;
+}
+
+async function convertFile(
+  buffer: Buffer,
+  format: string,
+  customTitle?: string | null
+): Promise<ConversionResult | null> {
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).slice(2, 8);
+
+  // DOCX -> HTML
+  if (format === 'docx') {
+    const mammoth = await import('mammoth');
+    const result = await mammoth.convertToHtml({ buffer });
+    const htmlContent = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>${customTitle || 'Document'}</title></head>
+<body>${result.value}</body></html>`;
+    return {
+      buffer: Buffer.from(htmlContent, 'utf-8'),
+      ext: 'html',
+      contentType: CONTENT_TYPES.html,
+      originalFileName: `${timestamp}-${random}.html`,
+    };
+  }
+
+  // MOBI/AZW3 -> EPUB
+  if (format === 'mobi' || format === 'azw3') {
+    const ext = format;
+    const tmpDir = await mkdtemp(path.join(tmpdir(), 'ebook-'));
+    const inputPath = path.join(tmpDir, `input.${ext}`);
+    const outputPath = path.join(tmpDir, 'output.epub');
+
+    await writeFile(inputPath, buffer);
+
+    await new Promise<void>((resolve, reject) => {
+      execFile('ebook-convert', [inputPath, outputPath], { timeout: 120000 }, (error, _stdout, stderr) => {
+        if (error) reject(new Error(`ebook-convert: ${stderr || error.message}`));
+        else resolve();
+      });
+    });
+
+    const epubBuffer = await readFile(outputPath);
+    await unlink(inputPath).catch(() => {});
+    await unlink(outputPath).catch(() => {});
+
+    return {
+      buffer: epubBuffer,
+      ext: 'epub',
+      contentType: CONTENT_TYPES.epub,
+      originalFileName: `${timestamp}-${random}.epub`,
+    };
+  }
+
+  return null;
+}
+
+// ============================================
+// 主上传逻辑
+// ============================================
+
+export async function POST(request: Request) {
+  try {
+    const { userId, error: authError } = await requireAuth();
+    if (authError) return authError;
+
+    // 获取站点配置
+    let siteConfig = await prisma.siteConfig.findUnique({
+      where: { userId: userId! },
+      select: {
+        ossRegion: true, ossBucket: true, ossAccessKeyId: true, ossAccessKeySecret: true,
+        ossDir: true, ossDomain: true, storageType: true,
+      },
+    });
+
+    if (!siteConfig) {
+      siteConfig = await prisma.siteConfig.create({
+        data: { userId: userId!, storageType: 'local' },
+        select: {
+          ossRegion: true, ossBucket: true, ossAccessKeyId: true, ossAccessKeySecret: true,
+          ossDir: true, ossDomain: true, storageType: true,
+        },
+      });
+    }
+
+    // 创建存储适配器
+    let adapter: StorageAdapter;
+    let storageType: StorageType;
+    let storageDir: string;
+
+    try {
+      ({ adapter, type: storageType, dir: storageDir } = createStorageAdapter(userId!, siteConfig));
+    } catch (err) {
+      console.error('Failed to create storage adapter:', err);
+      return ApiError.badRequest(err instanceof Error ? err.message : '存储配置错误');
+    }
+
+    // 解析表单数据
+    const formData = await request.formData();
+    const file = formData.get('file') as File | null;
+    const customTitle = formData.get('title') as string | null;
+    const customAuthor = formData.get('author') as string | null;
+
+    if (!file) return ApiError.badRequest('请选择要上传的文件');
+    if (file.size > MAX_SIZE) return ApiError.badRequest('文件大小不能超过 100MB');
+
+    // 检测格式
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    const format = EXT_FORMAT_MAP[ext] || FORMAT_MAP[file.type];
+    if (!format) {
+      return ApiError.badRequest(`不支持的文件格式 (.${ext})，支持：EPUB、PDF、TXT、MD、HTML、DOCX、MOBI、AZW3`);
+    }
+
+    // 生成文件名并读取文件
+    const timestamp = Date.now();
+    const random = Math.random().toString(36).slice(2, 8);
+    const fileName = `${timestamp}-${random}.${ext}`;
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const contentType = file.type || CONTENT_TYPES[format] || 'application/octet-stream';
+
+    let fileUrl: string;
+    let coverUrl: string | null = null;
+    let readableUrl: string | null = null;
+
+    // 上传主文件
+    const relativePath = `${storageDir}/${userId}/${fileName}`;
+    fileUrl = await adapter.upload(buffer, relativePath, contentType);
+
+    // EPUB：提取封面和元数据
     if (format === 'epub') {
       try {
-        // 提取元数据（标题、作者）
         const metadata = extractEpubMetadata(buffer);
-        epubTitle = metadata.title;
-        epubAuthor = metadata.author;
-
-        // 提取封面图片
         const cover = await extractEpubCover(buffer);
         if (cover) {
-          const coverObjectName = objectName.replace(/\.epub$/i, `-cover.${cover.ext}`);
-          await client.put(coverObjectName, cover.data, {
-            headers: { 'Content-Type': cover.contentType },
-          });
-          if (ossConfig.domain) {
-            const domain = ossConfig.domain.replace(/\/$/, '');
-            coverUrl = `${domain}/${coverObjectName}`;
-          } else {
-            const region = ossConfig.region.replace(/^oss-/, '');
-            coverUrl = `https://${ossConfig.bucket}.oss-${region}.aliyuncs.com/${coverObjectName}`;
-          }
+          const coverFileName = `${timestamp}-${random}-cover.${cover.ext}`;
+          const coverRelativePath = `${storageDir}/${userId}/${coverFileName}`;
+          coverUrl = await adapter.upload(cover.data, coverRelativePath, cover.contentType);
         }
       } catch (e) {
         console.warn('EPUB 封面/元数据提取失败:', e);
       }
     }
 
-    // 从文件名提取标题（EPUB 元数据优先）
-    const title = customTitle || epubTitle || file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
-
-    // DOCX 转 HTML
-    let readableUrl: string | null = null;
-    if (format === 'docx') {
-      try {
-        const mammoth = await import('mammoth');
-        const docxResult = await mammoth.convertToHtml({ buffer });
-        const htmlContent = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>${title}</title></head>
-<body>${docxResult.value}</body></html>`;
-        const htmlBuffer = Buffer.from(htmlContent, 'utf-8');
-        const htmlObjectName = objectName.replace(/\.docx$/i, '.html');
-        const htmlUploadResult = await client.put(htmlObjectName, htmlBuffer, {
-          headers: { 'Content-Type': 'text/html; charset=utf-8' },
-        });
-        if (ossConfig.domain) {
-          const domain = ossConfig.domain.replace(/\/$/, '');
-          readableUrl = `${domain}/${htmlObjectName}`;
-        } else {
-          readableUrl = htmlUploadResult.url;
-        }
-      } catch (e) {
-        console.error('DOCX conversion failed:', e);
-        // 转换失败不影响上传，仍然保存原始文件
-      }
+    // 文件转换（DOCX->HTML, MOBI->EPUB）
+    const converted = await convertFile(buffer, format, customTitle);
+    if (converted) {
+      const convertedFileName = converted.originalFileName || `${timestamp}-${random}.${converted.ext}`;
+      const convertedRelativePath = `${storageDir}/${userId}/${convertedFileName}`;
+      readableUrl = await adapter.upload(converted.buffer, convertedRelativePath, converted.contentType);
     }
 
-    // MOBI/AZW3 转 EPUB（使用 Calibre ebook-convert）
-    if ((format === 'mobi' || format === 'azw3') && !readableUrl) {
-      try {
-        // 创建临时目录
-        const tmpDir = await mkdtemp(path.join(tmpdir(), 'ebook-'));
-        const inputPath = path.join(tmpDir, `input.${ext}`);
-        const outputPath = path.join(tmpDir, 'output.epub');
-
-        // 写入临时文件
-        await writeFile(inputPath, buffer);
-
-        // 调用 ebook-convert
-        await new Promise<void>((resolve, reject) => {
-          execFile('ebook-convert', [inputPath, outputPath], { timeout: 120000 }, (error, _stdout, stderr) => {
-            if (error) {
-              reject(new Error(`ebook-convert failed: ${stderr || error.message}`));
-            } else {
-              resolve();
-            }
-          });
-        });
-
-        // 读取转换后的 EPUB
-        const epubBuffer = await readFile(outputPath);
-        const epubObjectName = objectName.replace(/\.(mobi|azw3|azw)$/i, '.epub');
-        const epubUploadResult = await client.put(epubObjectName, epubBuffer, {
-          headers: { 'Content-Type': 'application/epub+zip' },
-        });
-
-        if (ossConfig.domain) {
-          const domain = ossConfig.domain.replace(/\/$/, '');
-          readableUrl = `${domain}/${epubObjectName}`;
-        } else {
-          readableUrl = epubUploadResult.url;
-        }
-
-        // 清理临时文件
-        await unlink(inputPath).catch(() => {});
-        await unlink(outputPath).catch(() => {});
-      } catch (e) {
-        console.error('MOBI/AZW3 conversion failed:', e);
-        // 转换失败不影响上传，仍然保存原始文件
-      }
-    }
-
-    // 创建 Book 记录
+    // 创建书籍记录
     const book = await prisma.book.create({
       data: {
-        title,
-        author: customAuthor || epubAuthor || null,
+        title: customTitle || file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '),
+        author: customAuthor || null,
         cover: coverUrl,
         format,
         originalUrl: fileUrl,
@@ -332,18 +360,24 @@ export async function POST(request: Request) {
       },
     });
 
-    // EPUB：服务端解析章节并存入数据库
+    // EPUB：服务端解析章节
     if (format === 'epub') {
       try {
-        const epubOssConfig: OssConfig = {
-          dir: ossConfig.dir,
-          domain: ossConfig.domain,
-          bucket: ossConfig.bucket,
-          region: ossConfig.region,
+        const ossConfig: OssConfig = {
+          dir: storageDir,
+          domain: storageType === 'local' ? undefined : (process.env.DEFAULT_OSS_DOMAIN || siteConfig.ossDomain || ''),
+          bucket: storageType === 'local' ? '' : (process.env.DEFAULT_OSS_BUCKET || siteConfig.ossBucket || ''),
+          region: storageType === 'local' ? '' : (process.env.DEFAULT_OSS_REGION || siteConfig.ossRegion || ''),
         };
-        const parseResult = await parseEpubContent(buffer, book.id, client, epubOssConfig);
+
+        const localOptions: LocalStorageOptions | undefined = storageType === 'local'
+          ? { uploadToLocal: adapter.upload.bind(adapter), userId: userId! }
+          : undefined;
+
+        const result = await parseEpubContent(buffer, book.id, null, ossConfig, localOptions);
+
         await prisma.bookChapter.createMany({
-          data: parseResult.chapters.map(ch => ({
+          data: result.chapters.map(ch => ({
             bookId: book.id,
             chapterIndex: ch.index,
             href: ch.href,
@@ -352,16 +386,18 @@ export async function POST(request: Request) {
             charLength: ch.charLength,
           })),
         });
+
         await prisma.book.update({
           where: { id: book.id },
           data: {
-            totalChapters: parseResult.chapters.length,
-            totalCharacters: parseResult.totalCharacters,
-            epubStyles: parseResult.styles,
+            totalChapters: result.chapters.length,
+            totalCharacters: result.totalCharacters,
+            epubStyles: result.styles,
             parsedAt: new Date(),
           },
         });
-        console.log(`[EPUB Upload] 解析完成: bookId=${book.id}, ${parseResult.chapters.length} 章节, ${parseResult.totalCharacters} 字符`);
+
+        console.log(`[EPUB Upload] [${storageType === 'local' ? '本地存储' : 'OSS'}] 解析完成: ${result.chapters.length} 章节`);
       } catch (e) {
         console.error('[EPUB Upload] 章节解析失败（不影响上传）:', e);
       }
@@ -369,23 +405,17 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       code: 200,
-      message: '上传成功',
+      message: `上传成功（${storageType === 'local' ? '本地存储' : 'OSS'}）`,
       data: book,
     });
+
   } catch (error) {
     console.error('Failed to upload book:', error);
-    
     if (error instanceof Error) {
-      if (error.message.includes('AccessDenied')) {
-        return ApiError.forbidden('OSS 访问被拒绝，请检查 AccessKey 配置');
-      }
-      if (error.message.includes('NoSuchBucket')) {
-        return ApiError.badRequest('OSS Bucket 不存在，请检查配置');
-      }
-      // 返回具体错误信息辅助调试
+      if (error.message.includes('AccessDenied')) return ApiError.forbidden('OSS 访问被拒绝');
+      if (error.message.includes('NoSuchBucket')) return ApiError.badRequest('OSS Bucket 不存在');
       return ApiError.internal(`上传失败: ${error.message}`);
     }
-    
     return ApiError.internal('上传失败，请重试');
   }
 }

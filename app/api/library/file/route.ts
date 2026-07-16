@@ -1,64 +1,95 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { ApiError } from '@/lib/api-response';
+import { readFile } from 'fs/promises';
+import path from 'path';
 
-// 大文件代理需要更长的超时时间
 export const maxDuration = 120; // 秒
+
+// 完整的 Content-Type 映射
+const CONTENT_TYPES: Record<string, string> = {
+  epub: 'application/epub+zip',
+  pdf: 'application/pdf',
+  txt: 'text/plain; charset=utf-8',
+  html: 'text/html; charset=utf-8',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  mobi: 'application/x-mobipocket-ebook',
+  azw3: 'application/x-mobipocket-ebook',
+};
+
+/**
+ * 判断是否为本地文件 URL
+ */
+function isLocalUrl(url: string): boolean {
+  return url.startsWith('/') || !url.startsWith('http://') && !url.startsWith('https://');
+}
 
 /**
  * GET /api/library/file?id=xxx
  * 代理获取书籍文件内容（避免 CORS 问题）
- * 公开接口：所有人都可以阅读图书馆中的书籍
  */
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
 
-    if (!id) {
-      return ApiError.badRequest('缺少书籍 ID');
-    }
+    if (!id) return ApiError.badRequest('缺少书籍 ID');
 
     const book = await prisma.book.findUnique({
       where: { id },
-      select: {
-        originalUrl: true,
-        readableUrl: true,
-        format: true,
-      },
+      select: { originalUrl: true, readableUrl: true, format: true },
     });
 
-    if (!book) {
-      return ApiError.notFound('书籍不存在');
-    }
+    if (!book) return ApiError.notFound('书籍不存在');
 
-    // 优先使用转换后的 URL
     const fileUrl = book.readableUrl || book.originalUrl;
 
-    // 从 OSS 获取文件（流式传输，不缓冲整个文件到内存）
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 分钟超时
+    if (isLocalUrl(fileUrl)) {
+      // ========== 本地文件 ==========
+      const filePath = path.join(process.cwd(), 'public', fileUrl);
+      try {
+        const buffer = await readFile(filePath);
+        const contentType = CONTENT_TYPES[book.format] || 'application/octet-stream';
 
-    const response = await fetch(fileUrl, { signal: controller.signal });
-    clearTimeout(timeoutId);
+        return new NextResponse(buffer, {
+          headers: {
+            'Content-Type': contentType,
+            'Cache-Control': 'private, max-age=3600',
+            'Content-Length': String(buffer.length),
+          },
+        });
+      } catch (err) {
+        console.error('Failed to read local file:', fileUrl, err);
+        return ApiError.internal('文件读取失败');
+      }
+    } else {
+      // ========== OSS 文件 ==========
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
 
-    if (!response.ok) {
-      return ApiError.internal(`文件获取失败: ${response.status}`);
+      try {
+        const response = await fetch(fileUrl, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          return ApiError.internal(`文件获取失败: ${response.status}`);
+        }
+
+        const contentType = response.headers.get('content-type') || CONTENT_TYPES[book.format] || 'application/octet-stream';
+        const contentLength = response.headers.get('content-length');
+
+        const headers: Record<string, string> = {
+          'Content-Type': contentType,
+          'Cache-Control': 'private, max-age=3600',
+        };
+        if (contentLength) headers['Content-Length'] = contentLength;
+
+        return new NextResponse(response.body, { headers });
+      } catch (err) {
+        clearTimeout(timeoutId);
+        throw err;
+      }
     }
-
-    const contentType = response.headers.get('content-type') || 'application/octet-stream';
-    const contentLength = response.headers.get('content-length');
-
-    const headers: Record<string, string> = {
-      'Content-Type': contentType,
-      'Cache-Control': 'private, max-age=3600',
-    };
-    if (contentLength) {
-      headers['Content-Length'] = contentLength;
-    }
-
-    // 直接转发 OSS 的响应流，浏览器可以边下载边处理
-    return new NextResponse(response.body, { headers });
   } catch (error) {
     console.error('Failed to proxy file:', error);
     return ApiError.internal('文件获取失败');
