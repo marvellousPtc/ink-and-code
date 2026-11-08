@@ -9,6 +9,7 @@
 
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { AI_CHAT_ENABLED } from "@/lib/features";
 
 export const maxDuration = 60;
 
@@ -21,6 +22,13 @@ function todayDateString() {
 }
 
 export async function POST(req: Request) {
+  if (!AI_CHAT_ENABLED) {
+    return Response.json(
+      { error: "AI 对话功能暂时关闭，敬请期待", code: "AI_CHAT_DISABLED" },
+      { status: 503 }
+    );
+  }
+
   if (!CORTEX_API_KEY) {
     console.error("CORTEX_API_KEY is not configured");
     return Response.json(

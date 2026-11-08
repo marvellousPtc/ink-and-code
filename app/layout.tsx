@@ -7,6 +7,7 @@ import { SWRProvider } from "./components/SWRProvider";
 import { ConfirmProvider } from "./components/ConfirmDialog";
 import AuthProvider from "./components/AuthProvider";
 import ChatAssistant from "./components/ChatAssistant";
+import { AI_CHAT_ENABLED } from "@/lib/features";
 
 export const metadata: Metadata = {
   title: "Ink & Code | 用代码书写思想",
@@ -79,7 +80,7 @@ export default function RootLayout({
                 <Header />
                 <main className="grow">{children}</main>
                 <Footer />
-                <ChatAssistant />
+                {AI_CHAT_ENABLED && <ChatAssistant />}
               </ConfirmProvider>
             </ThemeProvider>
           </SWRProvider>

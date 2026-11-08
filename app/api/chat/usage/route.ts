@@ -1,9 +1,17 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { AI_CHAT_ENABLED } from "@/lib/features";
 
 const AI_DAILY_LIMIT = parseInt(process.env.AI_DAILY_LIMIT || "20", 10);
 
 export async function GET() {
+  if (!AI_CHAT_ENABLED) {
+    return Response.json(
+      { error: "AI 对话功能暂时关闭", code: "AI_CHAT_DISABLED" },
+      { status: 503 }
+    );
+  }
+
   const session = await auth();
 
   if (!session?.user?.id) {

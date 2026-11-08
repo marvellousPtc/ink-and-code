@@ -6,6 +6,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { auth } from '@/lib/auth';
+import { AI_CHAT_ENABLED } from '@/lib/features';
 import {
   ArrowRight,
   Sparkles,
@@ -55,7 +56,9 @@ export default async function LandingPage() {
           {/* 标签 */}
           <div className="flex items-center gap-2 px-4 py-2 bg-rose-500/5 border border-rose-500/20 rounded-full mb-8 animate-fade-up">
             <Sparkles className="w-4 h-4 text-rose-500" />
-            <span className="text-xs font-bold text-rose-500 tracking-wider uppercase">AI 原生 · 写作 · 阅读 · 对话</span>
+            <span className="text-xs font-bold text-rose-500 tracking-wider uppercase">
+              AI 原生 · 写作 · 阅读{AI_CHAT_ENABLED ? ' · 对话' : ''}
+            </span>
           </div>
 
           {/* 主标题 */}
@@ -66,7 +69,7 @@ export default async function LandingPage() {
             <p className="text-xl sm:text-2xl md:text-3xl text-muted max-w-3xl mx-auto leading-relaxed animate-fade-up delay-1 opacity-0 [animation-fill-mode:forwards]">
               AI 在场的<span className="text-foreground font-semibold">创作与阅读</span>。
               <br className="hidden sm:block" />
-              写作有助手，阅读有同伴，数据可对话。
+              写作有助手，阅读有同伴，{AI_CHAT_ENABLED ? '数据可对话。' : '数据随手可查。'}
             </p>
           </div>
 
@@ -80,21 +83,27 @@ export default async function LandingPage() {
               <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
             </Link>
 
-            <a
-              href="/chat"
-              className="group flex items-center gap-3 px-8 py-4 border border-card-border rounded-2xl text-sm font-bold tracking-wider uppercase text-foreground hover:bg-card/60 transition-all duration-300"
-            >
-              <BrainCircuit className="w-4 h-4 text-rose-500" />
-              <span>体验 AI 对话</span>
-            </a>
+            {AI_CHAT_ENABLED && (
+              <a
+                href="/chat"
+                className="group flex items-center gap-3 px-8 py-4 border border-card-border rounded-2xl text-sm font-bold tracking-wider uppercase text-foreground hover:bg-card/60 transition-all duration-300"
+              >
+                <BrainCircuit className="w-4 h-4 text-rose-500" />
+                <span>体验 AI 对话</span>
+              </a>
+            )}
           </div>
 
           {/* 关键指标 */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-8 mt-16 pt-8 border-t border-card-border/50 animate-fade-up delay-3 opacity-0 [animation-fill-mode:forwards] max-w-4xl w-full">
+          <div
+            className={`grid grid-cols-2 ${
+              AI_CHAT_ENABLED ? 'sm:grid-cols-4' : 'sm:grid-cols-3'
+            } gap-4 sm:gap-8 mt-16 pt-8 border-t border-card-border/50 animate-fade-up delay-3 opacity-0 [animation-fill-mode:forwards] max-w-4xl w-full`}
+          >
             {[
               { v: '9+', l: 'AI 写作动作', color: 'text-primary' },
               { v: '5', l: 'AI 阅读工具', color: 'text-rose-500' },
-              { v: '∞', l: 'AI 对话问答', color: 'text-purple-500' },
+              ...(AI_CHAT_ENABLED ? [{ v: '∞', l: 'AI 对话问答', color: 'text-purple-500' }] : []),
               { v: '📱💻', l: '跨端同步', color: 'text-cyan-500' },
             ].map(item => (
               <div key={item.l} className="text-center">
@@ -364,6 +373,7 @@ export default async function LandingPage() {
       </section>
 
       {/* ==================== AI CHAT ==================== */}
+      {AI_CHAT_ENABLED && (
       <section id="ai-chat" className="relative py-24 md:py-32 px-4 sm:px-6 border-t border-card-border overflow-hidden bg-card/20">
         <div className="absolute inset-0 -z-10">
           <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[700px] h-[500px] bg-rose-500/5 rounded-full blur-[150px]" />
@@ -485,6 +495,7 @@ export default async function LandingPage() {
           </div>
         </div>
       </section>
+      )}
 
       {/* ==================== IMMERSIVE READING ==================== */}
       <section id="immersive" className="relative py-24 md:py-32 px-4 sm:px-6 border-t border-card-border overflow-hidden">
@@ -617,7 +628,9 @@ export default async function LandingPage() {
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
             {[
-              { icon: BrainCircuit, title: 'AI 对话助手', desc: '联网搜索、数据查询、上下文对话，问什么都在线', color: 'text-rose-500', bg: 'bg-rose-500/10' },
+              ...(AI_CHAT_ENABLED
+                ? [{ icon: BrainCircuit, title: 'AI 对话助手', desc: '联网搜索、数据查询、上下文对话，问什么都在线', color: 'text-rose-500', bg: 'bg-rose-500/10' }]
+                : []),
               { icon: Sparkles, title: 'AI 写作动作', desc: '续写 / 改写 / 翻译 / 总结 / 纠错 等 9 个动作一键即达', color: 'text-primary', bg: 'bg-primary/10' },
               { icon: BookMarked, title: 'AI 阅读工具', desc: '解释 / 翻译 / 总结 / 提问 / 存为笔记', color: 'text-amber-500', bg: 'bg-amber-500/10' },
               { icon: RefreshCw, title: '跨端进度同步', desc: '字符级锚点定位，切设备也精准跳回原页', color: 'text-cyan-500', bg: 'bg-cyan-500/10' },
@@ -655,18 +668,30 @@ export default async function LandingPage() {
               <div className="h-px w-12 bg-primary/30" />
             </div>
             <h2 className="serif text-3xl sm:text-4xl md:text-5xl font-bold text-foreground tracking-tight">
-              三步进入 AI 创作
+              {AI_CHAT_ENABLED ? '三步进入 AI 创作' : '两步进入 AI 创作'}
             </h2>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-6 lg:gap-10">
+          <div
+            className={`grid gap-6 lg:gap-10 ${
+              AI_CHAT_ENABLED ? 'md:grid-cols-3' : 'md:grid-cols-2 max-w-3xl mx-auto'
+            }`}
+          >
             {[
               { step: '01', title: '登录', desc: 'GitHub 一键登录，免费解锁所有 AI 能力' },
-              { step: '02', title: '创作', desc: '写作、阅读、划线、提问 AI，所有动作都被记录' },
-              { step: '03', title: '对话', desc: '向 AI 问任何关于自己的数据与进度' },
+              {
+                step: '02',
+                title: '创作',
+                desc: AI_CHAT_ENABLED
+                  ? '写作、阅读、划线、提问 AI，所有动作都被记录'
+                  : '写作、阅读、划线，所有动作都被记录',
+              },
+              ...(AI_CHAT_ENABLED
+                ? [{ step: '03', title: '对话', desc: '向 AI 问任何关于自己的数据与进度' }]
+                : []),
             ].map((item, index) => (
               <div key={item.step} className="relative text-center">
-                {index < 2 && (
+                {index < (AI_CHAT_ENABLED ? 2 : 1) && (
                   <div className="hidden md:block absolute top-12 left-[60%] w-[80%] h-px bg-gradient-to-r from-primary/30 to-transparent" />
                 )}
                 <div className="w-20 h-20 mx-auto mb-5 rounded-3xl bg-primary/10 border border-primary/20 flex items-center justify-center">
@@ -791,13 +816,15 @@ export default async function LandingPage() {
               <span>{ctaText}</span>
               <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </Link>
-            <a
-              href="/chat"
-              className="group inline-flex items-center gap-3 px-10 py-5 border border-card-border rounded-2xl text-sm font-bold tracking-wider uppercase text-foreground hover:bg-card/60 transition-all duration-300"
-            >
-              <Send className="w-4 h-4 text-rose-500" />
-              <span>对话 AI 试试</span>
-            </a>
+            {AI_CHAT_ENABLED && (
+              <a
+                href="/chat"
+                className="group inline-flex items-center gap-3 px-10 py-5 border border-card-border rounded-2xl text-sm font-bold tracking-wider uppercase text-foreground hover:bg-card/60 transition-all duration-300"
+              >
+                <Send className="w-4 h-4 text-rose-500" />
+                <span>对话 AI 试试</span>
+              </a>
+            )}
           </div>
         </div>
       </section>
